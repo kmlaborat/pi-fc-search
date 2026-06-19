@@ -1,0 +1,14 @@
+{
+  "name": "pi-fc-search",
+  "version": "1.0.0",
+  "description": "Pi extension package for fastcontext repository search",
+  "main": "extensions/index.ts",
+  "keywords": ["pi-package"],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "pi": {
+    "extensions": ["./extensions"],
+    "skills": ["./skills"]
+  }
+}
