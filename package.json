@@ -1,6 +1,7 @@
 {
   "name": "pi-fc-search",
   "version": "1.0.0",
+  "type": "module",
   "description": "Pi extension package for fastcontext repository search",
   "main": "extensions/index.ts",
   "keywords": ["pi-package"],

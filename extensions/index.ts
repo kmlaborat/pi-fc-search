@@ -6,18 +6,25 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
 import { spawn, ChildProcess } from "node:child_process";
 
-// Tool input schema
-const SearchToolSchema = Type.Object({
-  description: Type.String({
-    description: "Short task description (3-5 words, e.g., 'Find API auth middleware')",
-  }),
-  prompt: Type.String({
-    description: "Detailed natural language instruction or question for repository search",
-  }),
-});
+// Tool input schema (JSON Schema format - zero external dependencies)
+const SearchToolSchema = {
+  type: "object",
+  required: ["description", "prompt"],
+  properties: {
+    description: {
+      type: "string",
+      description: "Short task description (3-5 words, e.g., 'Find API auth middleware')",
+      maxLength: 100,
+    },
+    prompt: {
+      type: "string",
+      description: "Detailed natural language instruction or question for repository search",
+      maxLength: 2000,
+    },
+  },
+} as const;
 
 export type SearchToolInput = typeof SearchToolSchema;
 
@@ -29,19 +36,34 @@ const TIMEOUT_SECONDS = 120;
 /**
  * Validates tool input parameters
  */
+/**
+ * Validates tool input parameters
+ */
 function validateInput(args: unknown): { description: string; prompt: string } {
   if (!args || typeof args !== "object") {
-    throw new Error("Invalid tool arguments");
+    throw new Error("Invalid tool arguments: expected an object");
   }
 
   const { description, prompt } = args as Record<string, unknown>;
 
-  if (typeof description !== "string" || description.length > 100) {
-    throw new Error("Invalid or missing description");
+  if (typeof description !== "string") {
+    throw new Error("Missing or invalid 'description' parameter: must be a string");
+  }
+  if (description.length === 0) {
+    throw new Error("'description' cannot be empty");
+  }
+  if (description.length > 100) {
+    throw new Error("'description' exceeds maximum length of 100 characters");
   }
 
-  if (typeof prompt !== "string" || prompt.length > 2000) {
-    throw new Error("Invalid or missing prompt");
+  if (typeof prompt !== "string") {
+    throw new Error("Missing or invalid 'prompt' parameter: must be a string");
+  }
+  if (prompt.length === 0) {
+    throw new Error("'prompt' cannot be empty");
+  }
+  if (prompt.length > 2000) {
+    throw new Error("'prompt' exceeds maximum length of 2000 characters");
   }
 
   return { description, prompt };
@@ -90,6 +112,68 @@ function truncateOutput(
   );
 
   return truncatedLines.join("\n");
+}
+
+/**
+ * Converts fastcontext output to SPEC-compliant Markdown format
+ */
+function formatToSpec(output: string): string {
+  // Parse fastcontext output and format according to SPEC Section 3.1
+  // Expected fastcontext output format: file:line:content or similar
+  
+  const lines = output.split("\n");
+  const relevantLocations: Array<{ file: string; start: number; end: number }> = [];
+  let summaryLines: string[] = [];
+
+  for (const line of lines) {
+    // Try to parse citation format: path/to/file.ts:line: content
+    const citationMatch = line.match(/^(.+?):(\d+):\s*(.*)$/);
+    if (citationMatch) {
+      const [, file, lineStr, content] = citationMatch;
+      const lineNumber = parseInt(lineStr, 10);
+      if (!isNaN(lineNumber)) {
+        relevantLocations.push({ file: file.trim(), start: lineNumber, end: lineNumber });
+        if (content.trim()) {
+          summaryLines.push(content.trim());
+        }
+      }
+    } else if (line.trim()) {
+      // Non-citation lines might be summary content
+      summaryLines.push(line);
+    }
+  }
+
+  // Build SPEC-compliant output
+  const formattedLines: string[] = [];
+  
+  // Summary section
+  formattedLines.push("### Summary");
+  if (summaryLines.length > 0) {
+    // Remove duplicates and limit summary
+    const uniqueSummaries = [...new Set(summaryLines)].slice(0, 10);
+    formattedLines.push(uniqueSummaries.join(" "));
+  } else {
+    formattedLines.push("Search completed successfully.");
+  }
+  formattedLines.push("");
+
+  // Relevant Locations section
+  formattedLines.push("### Relevant Locations");
+  if (relevantLocations.length > 0) {
+    // Remove duplicates
+    const uniqueLocations = Array.from(
+      new Set(relevantLocations.map(loc => `${loc.file}:${loc.start}-${loc.end}`))
+    );
+    
+    for (const locStr of uniqueLocations.slice(0, 20)) {
+      const [file, range] = locStr.split(":");
+      formattedLines.push(`- **[${file}]**: lines [${range}]`);
+    }
+  } else {
+    formattedLines.push("No specific locations identified.");
+  }
+
+  return formattedLines.join("\n");
 }
 
 /**
@@ -156,10 +240,16 @@ function executeFastcontext(
 
       if (code !== 0) {
         if (stderrData.includes("not found") || stderrData.includes("ENOENT")) {
-          resolve("[ERROR] fastcontext command not found. Ensure the package is properly initialized.");
+          resolve("[ERROR] fastcontext command not found. Ensure the package is properly installed and available in PATH.");
           return;
         }
         resolve("[ERROR] Subagent execution failed due to upstream LLM API error.");
+        return;
+      }
+
+      // Check for no matching code found
+      if (!stdoutData.trim() || stdoutData.trim().length === 0) {
+        resolve(`### Summary\n\nNo relevant files or contexts found matching the query.`);
         return;
       }
 
@@ -227,8 +317,11 @@ export default function (pi: ExtensionAPI) {
           signal
         );
 
+        // Format output to SPEC-compliant Markdown format
+        const formattedResult = formatToSpec(result);
+
         return {
-          content: [{ type: "text", text: result }],
+          content: [{ type: "text", text: formattedResult }],
           details: { description, promptLength: prompt.length },
         };
       } catch (error) {
