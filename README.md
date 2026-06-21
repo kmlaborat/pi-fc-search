@@ -50,10 +50,29 @@ fastcontext --version
 
 ### 2. Environment Configuration
 
-Set the required environment variables:
+You can configure environment variables in two ways:
+
+#### Option A: Using .env file (recommended)
+
+Create a `.env` file in your project directory or package directory. You can start from the provided `.env.example` template:
+
+```bash
+cp .env.example .env
+# Edit .env with your configuration
+```
+
+Example `.env` file:
+```
+FASTCONTEXT_API_KEY="your-api-key"
+FASTCONTEXT_ENDPOINT="https://your-fastcontext-endpoint.com"
+FASTCONTEXT_MODEL="llama-cpp/Qwen3.5-122B-A10B-MTP"
+```
+
+#### Option B: Using shell environment variables
 
 ```bash
 export FASTCONTEXT_API_KEY="your-api-key"
+export FASTCONTEXT_ENDPOINT="https://your-fastcontext-endpoint.com"
 export FASTCONTEXT_MODEL="llama-cpp/Qwen3.5-122B-A10B-MTP"
 ```
 
@@ -105,12 +124,20 @@ Authentication is processed via a custom middleware that validates JWT tokens. A
 
 ### Environment Variables
 
-The extension uses the same environment variables as fastcontext:
+The extension reads the following environment variables from `.env` file or shell environment:
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `FASTCONTEXT_API_KEY` | API key for LLM calls | Yes |
-| `FASTCONTEXT_MODEL` | LLM model to use | Yes |
+| Variable | Description | Required | Default |
+|----------|-------------|----------|---------|
+| `FASTCONTEXT_API_KEY` | API key for LLM calls | No* | (uses fastcontext default) |
+| `FASTCONTEXT_ENDPOINT` | Base URL of the fastcontext endpoint | No | (uses fastcontext default) |
+| `FASTCONTEXT_MODEL` | LLM model to use | No* | (uses fastcontext default) |
+
+*Optional when using fastcontext defaults. Set these variables to override the default configuration.
+
+The extension automatically loads the `.env` file from the following locations (in order):
+1. Current working directory (`./.env`)
+2. Package directory (`./extensions/../.env`)
+3. Extension directory (`./extensions/.env`)
 
 ### Error Handling
 
@@ -130,6 +157,7 @@ The extension handles the following error cases:
 pi-fc-search/
 ├── package.json          # Package manifest
 ├── README.md             # This file
+├── .env.example          # Environment variable template
 ├── extensions/
 │   └── index.ts          # Extension entry point
 └── skills/

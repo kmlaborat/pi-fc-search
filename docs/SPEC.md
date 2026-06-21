@@ -49,7 +49,14 @@ The input structure when the main agent calls this tool via the `pi` platform. T
 
 1. **Runtime Environment**: The `fastcontext` CLI (Python-based) must be installed in the `$PATH` of the execution container environment and be executable standalone.
 2. **Working Directory (cwd)**: Commands must be executed in the root directory of the target repository for exploration.
-3. **Authentication Environment Variables**: Environment variables required for LLM API calls made internally by `fastcontext` (`FASTCONTEXT_MODEL`, `FASTCONTEXT_API_KEY`, etc.) must be safely inherited from the parent process (`pi` runtime).
+3. **Authentication Environment Variables**: Environment variables required for LLM API calls made internally by `fastcontext` (`FASTCONTEXT_MODEL`, `FASTCONTEXT_API_KEY`, `FASTCONTEXT_ENDPOINT`, etc.) must be safely inherited from the parent process (`pi` runtime). These variables can be set via:
+   - Shell environment variables (exported before running pi)
+   - `.env` file in the package directory (automatically loaded at module initialization)
+
+   The extension automatically loads `.env` from the following locations (in order):
+   1. Current working directory (`./.env`)
+   2. Package directory (`./extensions/../.env`)
+   3. Extension directory (`./extensions/.env`)
 4. **Prohibition of External Dependencies (Zero-Dependency)**: To prevent dependency bloat from `node_modules` and breaking changes due to future specification changes, **no external npm modules (`axios`, `lodash`, `zod`, etc.) are permitted**. All input/output validation, parsing, and formatting must be completed using only Node.js standard libraries (`node:util`, `node:fs`, `node:path`, `node:child_process`, etc.) and the built-in `fetch`.
 
 ---
@@ -189,7 +196,75 @@ Using `spawn` from `node:child_process`, implement logic that receives input and
 
 ---
 
-## 9. Process Execution Security Design and Native Implementation Code
+## 9. Environment Configuration and .env File Support
+
+The extension supports loading environment variables from a `.env` file for convenient configuration management. This follows the same pattern as `pi-fa-merge`.
+
+### 9.1 .env File Format
+
+Create a `.env` file with the following variables:
+
+```env
+# API key for fastcontext authentication (optional)
+FASTCONTEXT_API_KEY=your-api-key-here
+
+# Base URL of the fastcontext endpoint (optional)
+FASTCONTEXT_ENDPOINT=https://your-fastcontext-endpoint.com
+
+# Model name to use for fastcontext search (optional)
+FASTCONTEXT_MODEL=fastcontext-model-name
+```
+
+### 9.2 .env File Loading Implementation
+
+The extension loads `.env` files using only Node.js built-in modules (no external dependencies like `dotenv`):
+
+```typescript
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+
+function loadEnvFile(): void {
+  const possiblePaths = [
+    path.join(process.cwd(), '.env'),
+    path.join(__dirname, '..', '.env'),
+    path.join(__dirname, '.env'),
+  ];
+
+  for (const envPath of possiblePaths) {
+    if (fs.existsSync(envPath)) {
+      const content = fs.readFileSync(envPath, 'utf-8');
+      const lines = content.split('\n');
+      
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        
+        const eqIndex = trimmed.indexOf('=');
+        if (eqIndex === -1) continue;
+        
+        const key = trimmed.substring(0, eqIndex).trim();
+        let value = trimmed.substring(eqIndex + 1).trim();
+        
+        // Remove surrounding quotes if present
+        if ((value.startsWith('"') && value.endsWith('"')) || 
+            (value.startsWith("'") && value.endsWith("'"))) {
+          value = value.slice(1, -1);
+        }
+        
+        process.env[key] = value;
+      }
+      return;
+    }
+  }
+}
+
+// Load at module initialization
+loadEnvFile();
+```
+
+---
+
+## 10. Process Execution Security Design and Native Implementation Code
 
 Guidelines for completely eliminating shell injection vulnerabilities and implementing safely without external modules.
 
