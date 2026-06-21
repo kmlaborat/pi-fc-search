@@ -92,9 +92,16 @@ const DEFAULT_FASTCONTEXT_API_KEY = "";
 const DEFAULT_FASTCONTEXT_ENDPOINT = "";
 const DEFAULT_FASTCONTEXT_MODEL = "";
 
+// pi-fc-search environment variables
 const FASTCONTEXT_API_KEY = process.env.FASTCONTEXT_API_KEY || DEFAULT_FASTCONTEXT_API_KEY;
 const FASTCONTEXT_ENDPOINT = process.env.FASTCONTEXT_ENDPOINT || DEFAULT_FASTCONTEXT_ENDPOINT;
 const FASTCONTEXT_MODEL = process.env.FASTCONTEXT_MODEL || DEFAULT_FASTCONTEXT_MODEL;
+
+// fastcontext CLI expects these environment variable names
+// These are only set in child process env to avoid conflicts with other projects
+const FC_API_KEY = FASTCONTEXT_API_KEY;
+const FC_BASE_URL = FASTCONTEXT_ENDPOINT;
+const FC_MODEL = FASTCONTEXT_MODEL;
 
 /**
  * Validates tool input parameters
@@ -248,13 +255,22 @@ function executeFastcontext(
   signal?: AbortSignal
 ): Promise<string> {
   return new Promise((resolve, reject) => {
+    // Set fastcontext CLI environment variables
+    // Use FC_ prefixed variables to avoid conflicts, then map to CLI expected names
+    const childEnv = {
+      ...process.env,
+      API_KEY: FC_API_KEY,
+      BASE_URL: FC_BASE_URL,
+      MODEL: FC_MODEL,
+    };
+
     // Create child process without shell for security
     const child: ChildProcess = spawn(
       "fastcontext",
       ["-q", prompt, "--citation"],
       {
         cwd,
-        env: process.env,
+        env: childEnv,
         shell: false,
       }
     );
