@@ -59,7 +59,7 @@ Example `.env` file:
 ```
 FASTCONTEXT_API_KEY="your-api-key"
 FASTCONTEXT_ENDPOINT="https://your-fastcontext-endpoint.com"
-FASTCONTEXT_MODEL="llama-cpp/Qwen3.5-122B-A10B-MTP"
+FASTCONTEXT_MODEL="FastContext-RL"
 ```
 
 #### Option B: Using shell environment variables
@@ -67,7 +67,7 @@ FASTCONTEXT_MODEL="llama-cpp/Qwen3.5-122B-A10B-MTP"
 ```bash
 export FASTCONTEXT_API_KEY="your-api-key"
 export FASTCONTEXT_ENDPOINT="https://your-fastcontext-endpoint.com"
-export FASTCONTEXT_MODEL="llama-cpp/Qwen3.5-122B-A10B-MTP"
+export FASTCONTEXT_MODEL="FastContext-RL"
 ```
 
 ### 3. No External Dependencies
