@@ -35,9 +35,6 @@ pi install git:github.com/user/pi-fc-search
 [fastcontext](https://github.com/microsoft/fastcontext) must be installed and available in your PATH:
 
 ```bash
-# Install fastcontext CLI (follow official documentation)
-curl -fsSL https://raw.githubusercontent.com/microsoft/fastcontext/main/install.sh | sh
-
 # Verify installation
 fastcontext --version
 ```
