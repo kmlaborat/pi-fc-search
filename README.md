@@ -16,12 +16,6 @@ This package integrates Microsoft's fastcontext tool with the pi coding agent, e
 
 ## Installation
 
-### Via pi CLI
-
-```bash
-pi install npm:pi-fc-search
-```
-
 ### From local directory
 
 ```bash
@@ -31,7 +25,7 @@ pi install ./path/to/pi-fc-search
 ### From git repository
 
 ```bash
-pi install git:github.com/user/pi-fc-search@v1.0.0
+pi install git:github.com/user/pi-fc-search
 ```
 
 ## Prerequisites
