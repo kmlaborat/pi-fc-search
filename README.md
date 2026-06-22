@@ -32,12 +32,7 @@ pi install git:github.com/user/pi-fc-search
 
 ### 1. fastcontext CLI Installation
 
-[fastcontext](https://github.com/microsoft/fastcontext) must be installed and available in your PATH:
-
-```bash
-# Verify installation
-fastcontext --version
-```
+[fastcontext](https://github.com/microsoft/fastcontext) must be installed.
 
 ### 2. Environment Configuration
 
