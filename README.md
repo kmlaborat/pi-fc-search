@@ -9,8 +9,9 @@ This package integrates Microsoft's fastcontext tool with the pi coding agent, e
 ## Features
 
 - **Natural language search**: Query your codebase with plain English questions
+- **Citation mode**: Returns machine-readable `<final_answer>` block with file paths and line ranges (fastcontext `--citation` flag)
 - **Context-efficient**: Returns only relevant file locations and summaries
-- **Smart truncation**: Automatically handles large outputs
+- **Smart truncation**: Automatically handles large outputs (except citation mode)
 - **Error handling**: Comprehensive error reporting and recovery
 - **Zero dependencies**: Uses only Node.js built-in modules
 
@@ -97,13 +98,19 @@ LLM calls fc_search tool:
   "prompt": "Locate the authentication middleware that validates JWT tokens and handles API authentication"
 }
 
-Tool response:
-### Summary
-Authentication is processed via a custom middleware that validates JWT tokens. API routes are structurally split.
+Tool response (citation mode):
+### Relevant Files
 
-### Relevant Locations
-- **src/auth/middleware.py**: lines 20-50
-- **src/api/routes.py**: lines 110-140
+- **src/auth/middleware.py**: lines [20-50]
+- **src/api/routes.py**: lines [110-140]
+
+The underlying fastcontext `--citation` flag returns a machine-readable `<final_answer>` block:
+```
+<final_answer>
+src/auth/middleware.py:20-50
+src/api/routes.py:110-140
+</final_answer>
+```
 ```
 
 ## Configuration

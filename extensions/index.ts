@@ -185,65 +185,37 @@ function truncateOutput(
 }
 
 /**
- * Converts fastcontext output to SPEC-compliant Markdown format
+ * Parses and formats citation block for display
+ * FastContext with --citation returns <final_answer> block with file paths and line ranges
  */
-function formatToSpec(output: string): string {
-  // Parse fastcontext output and format according to SPEC Section 3.1
-  // Expected fastcontext output format: file:line:content or similar
+function formatCitationOutput(output: string): string {
+  // Check if output contains <final_answer> block from fastcontext --citation
+  const finalAnswerMatch = output.match(/<final_answer>\s*([\s\S]*?)\s*<\/final_answer>/);
   
-  const lines = output.split("\n");
-  const relevantLocations: Array<{ file: string; start: number; end: number }> = [];
-  let summaryLines: string[] = [];
-
-  for (const line of lines) {
-    // Try to parse citation format: path/to/file.ts:line: content
-    const citationMatch = line.match(/^(.+?):(\d+):\s*(.*)$/);
-    if (citationMatch) {
-      const [, file, lineStr, content] = citationMatch;
-      const lineNumber = parseInt(lineStr, 10);
-      if (!isNaN(lineNumber)) {
-        relevantLocations.push({ file: file.trim(), start: lineNumber, end: lineNumber });
-        if (content.trim()) {
-          summaryLines.push(content.trim());
+  if (finalAnswerMatch) {
+    const content = finalAnswerMatch[1].trim();
+    if (content) {
+      // Format citation block for display
+      const lines = content.split("\n").filter(line => line.trim());
+      const formattedLines: string[] = [];
+      formattedLines.push("### Relevant Files");
+      formattedLines.push("");
+      for (const line of lines) {
+        // Parse file:line-range or file:line format
+        const match = line.match(/^(.+?):(\d+(?:-\d+)?)$/);
+        if (match) {
+          const [, file, range] = match;
+          formattedLines.push(`- **${file.trim()}**: lines [${range}]`);
+        } else if (line.trim()) {
+          formattedLines.push(`- ${line.trim()}`);
         }
       }
-    } else if (line.trim()) {
-      // Non-citation lines might be summary content
-      summaryLines.push(line);
+      return formattedLines.join("\n");
     }
   }
-
-  // Build SPEC-compliant output
-  const formattedLines: string[] = [];
   
-  // Summary section
-  formattedLines.push("### Summary");
-  if (summaryLines.length > 0) {
-    // Remove duplicates and limit summary
-    const uniqueSummaries = [...new Set(summaryLines)].slice(0, 10);
-    formattedLines.push(uniqueSummaries.join(" "));
-  } else {
-    formattedLines.push("Search completed successfully.");
-  }
-  formattedLines.push("");
-
-  // Relevant Locations section
-  formattedLines.push("### Relevant Locations");
-  if (relevantLocations.length > 0) {
-    // Remove duplicates
-    const uniqueLocations = Array.from(
-      new Set(relevantLocations.map(loc => `${loc.file}:${loc.start}-${loc.end}`))
-    );
-    
-    for (const locStr of uniqueLocations.slice(0, 20)) {
-      const [file, range] = locStr.split(":");
-      formattedLines.push(`- **[${file}]**: lines [${range}]`);
-    }
-  } else {
-    formattedLines.push("No specific locations identified.");
-  }
-
-  return formattedLines.join("\n");
+  // Fallback: return original output if no final_answer block found
+  return output;
 }
 
 /**
@@ -252,7 +224,8 @@ function formatToSpec(output: string): string {
 function executeFastcontext(
   prompt: string,
   cwd: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  useCitation: boolean = true
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     // Set fastcontext CLI environment variables
@@ -264,10 +237,16 @@ function executeFastcontext(
       MODEL: FC_MODEL,
     };
 
+    // Build command arguments
+    const args: string[] = ["-q", prompt];
+    if (useCitation) {
+      args.push("--citation");
+    }
+
     // Create child process without shell for security
     const child: ChildProcess = spawn(
       "fastcontext",
-      ["-q", prompt, "--citation"],
+      args,
       {
         cwd,
         env: childEnv,
@@ -332,7 +311,13 @@ function executeFastcontext(
         return;
       }
 
-      // Apply smart truncation
+      // For citation mode, preserve the <final_answer> block without truncation
+      if (useCitation && stdoutData.includes("<final_answer>")) {
+        resolve(stdoutData);
+        return;
+      }
+
+      // Apply smart truncation for non-citation output
       const totalLines = stdoutData.split("\n").length;
       const totalBytes = Buffer.byteLength(stdoutData, "utf8");
       const result = truncateOutput(stdoutData, totalLines, totalBytes);
@@ -397,8 +382,8 @@ export default function (pi: ExtensionAPI) {
           signal
         );
 
-        // Format output to SPEC-compliant Markdown format
-        const formattedResult = formatToSpec(result);
+        // Format citation output for display
+        const formattedResult = formatCitationOutput(result);
 
         return {
           content: [{ type: "text", text: formattedResult }],

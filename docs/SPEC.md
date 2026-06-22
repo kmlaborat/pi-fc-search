@@ -88,6 +88,8 @@ When output exceeds these limits, a tail truncation process (`truncateTail`) is 
 > 2. Among the extracted lines, count whether the start and end of code blocks (```) match. If the block is cut in the middle, automatically insert ``` at the end of the array to properly close the block.
 > 3. Append the following notification message at the end using standard template literals:
 > `[Output truncated: {outputLines}/{totalLines} lines ({outputBytes}B/{totalBytes}B). Full output: {tempFile}]`
+>
+> **Note**: Citation mode (`--citation` flag) output containing `<final_answer>` blocks is **not truncated** to preserve the machine-readable format.
 > 
 > 
 

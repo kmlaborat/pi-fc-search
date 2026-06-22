@@ -44,16 +44,24 @@ Call the `fc_search` tool with the following parameters:
 
 ### Response Format
 
-The tool returns Markdown-formatted results:
+The tool returns Markdown-formatted results with citation information:
 
 ```markdown
-### Summary
-[Summary of search results]
+### Relevant Files
 
-### Relevant Locations
-- **src/auth/middleware.py**: lines 20-50
-- **src/api/routes.py**: lines 110-140
+- **src/auth/middleware.py**: lines [20-50]
+- **src/api/routes.py**: lines [110-140]
 ```
+
+The underlying fastcontext `--citation` flag returns a machine-readable `<final_answer>` block:
+```
+<final_answer>
+src/auth/middleware.py:20-50
+src/api/routes.py:110-140
+</final_answer>
+```
+
+This citation format follows the FastContext specification for compact evidence with file paths and line ranges.
 
 ## Best Practices
 
