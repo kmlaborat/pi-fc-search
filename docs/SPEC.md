@@ -59,15 +59,13 @@ The input structure when the main agent calls this tool via the `pi` platform. T
 
 1. **Runtime Environment**: The `fastcontext` CLI (Python-based) must be installed in the `$PATH` of the execution container environment and be executable standalone.
 2. **Working Directory (cwd)**: Commands must be executed in the root directory of the target repository for exploration.
-3. **Authentication Environment Variables**: Environment variables required for LLM API calls made internally by `fastcontext` (`FASTCONTEXT_MODEL`, `FASTCONTEXT_API_KEY`, `FASTCONTEXT_ENDPOINT`, etc.) must be safely inherited from the parent process (`pi` runtime). These variables can be set via:
+3. **Authentication Environment Variables**: Environment variables required for LLM API calls made internally by `fastcontext` (`API_KEY`, `BASE_URL`, `MODEL`) must be set in the execution environment before running `pi`. These can be configured via:
    - Shell environment variables (exported before running pi)
-   - `.env` file in the package directory (automatically loaded at module initialization)
+   - System-level environment configuration
 
-   The extension automatically loads `.env` from the following locations (in order):
-   1. Current working directory (`./.env`)
-   2. Package directory (`./extensions/../.env`)
-   3. Extension directory (`./extensions/.env`)
-4. **Prohibition of External Dependencies (Zero-Dependency)**: To prevent dependency bloat from `node_modules` and breaking changes due to future specification changes, **no external npm modules (`axios`, `lodash`, `zod`, etc.) are permitted**. All input/output validation, parsing, and formatting must be completed using only Node.js standard libraries (`node:util`, `node:fs`, `node:path`, `node:child_process`, etc.) and the built-in `fetch`.
+   The extension does **not** load `.env` files automatically. Environment variables should be set externally and inherited by the child process.
+
+4. **Prohibition of External Dependencies (Zero-Dependency)**: To prevent dependency bloat from `node_modules` and breaking changes due to future specification changes, **no external npm modules (`axios`, `lodash`, `zod`, etc.) are permitted**. All input/output validation, parsing, and formatting must be completed using only Node.js standard libraries (`node:util`, `node:path`, `node:child_process`, etc.) and the built-in `fetch`.
 
 ---
 
@@ -75,7 +73,7 @@ The input structure when the main agent calls this tool via the `pi` platform. T
 
 ### 3.1 Output Data Structure
 
-The tool returns the raw output from fastcontext CLI. The format depends on the `use_citation` parameter:
+The tool returns the **raw output from fastcontext CLI** without any processing, truncation, or formatting. The format depends on the `use_citation` parameter:
 
 **Default mode (`use_citation: false`):**
 Returns full natural language response with summaries, reasoning, and file contexts:
@@ -100,24 +98,22 @@ src/api/routes.py:110-140
 </final_answer>
 ```
 
-The main agent receives the unmodified CLI output and interprets it directly. No additional formatting or tag manipulation is applied by the wrapper.
+The main agent receives the **unmodified CLI output** and interprets it directly. No additional formatting or tag manipulation is applied by the wrapper.
 
-### 3.2 Output Limits and Smart Truncation
+### 3.2 Output Handling - Pass-Through Design
 
-* **Maximum Lines**: 2,000 lines
-* **Maximum Bytes**: 50,000 bytes (approximately 50KB)
+**No truncation or processing is applied to the output.** The extension passes through:
+- All stdout data exactly as received from `fastcontext`
+- `<final_answer>` tags and exploration logs in their original form
+- Complete error messages from stderr on failure
 
-When output exceeds these limits in non-citation mode, a tail truncation process is applied to prioritize maintaining the beginning portion (context summary and important locations). Smart trimming logic preserves complete code blocks and appends a truncation notice.
+This design ensures that:
+1. The agent can see the complete search context including intermediate reasoning
+2. `<final_answer>` blocks are never corrupted by truncation
+3. The agent receives full visibility into the search process for better decision-making
 
-> **🔧 Smart Trimming Procedure (Implemented with Standard Features Only)**
-> 1. Decompose the string into lines using `split('\n')`, and extract up to the "last complete line" within the limits (lines and bytes).
-> 2. Among the extracted lines, count whether the start and end of code blocks (\`\`\`) match. If the block is cut in the middle, automatically insert \`\`\` at the end of the array to properly close the block.
-> 3. Append the following notification message at the end using standard template literals:
-> `[Output truncated: {outputLines}/{totalLines} lines ({outputBytes}B/{totalBytes}B).]`
->
-> **Note**: In citation mode (`use_citation: true`), the raw `<final_answer>` block output is passed through without truncation to preserve the machine-readable format.
-> 
-> 
+> **🔧 Design Rationale**
+> Previous versions implemented output truncation (2000 lines / 50KB limits) and smart trimming to preserve code blocks. However, this processing was identified as a source of hallucination and confusion for the agent. The current pass-through design eliminates all such processing to provide the agent with complete, unfiltered information.
 
 ### 3.3 Guarantees
 
@@ -144,8 +140,8 @@ In the TypeScript wrapper handler layer, capture child process errors and return
 | --- | --- |
 | **CLI Not Installed** | Capture standard error output and return the following error:<br><br>`[ERROR] fastcontext command not found. Ensure the package is properly initialized.` |
 | **Missing Parameters** | Error detected by `pi` runtime validation (JSON Schema). Prompt for re-request to LLM or return `Invalid tool arguments`. |
-| **No Matching Code Found** | Normal completion (Status 200) and return the following:<br><br>`### Summary`<br><br>`No relevant files or contexts found matching the query.` |
-| **LLM API Error** | Detected when the process returns a non-normal exit code (not 0), and return the following:<br><br>`[ERROR] Subagent execution failed due to upstream LLM API error.` |
+| **No Matching Code Found** | Normal completion (Status 200) and return empty output from fastcontext. The agent interprets the empty result. |
+| **LLM API Error / Process Failure** | Detected when the process returns a non-normal exit code (not 0). Return raw stderr output for agent interpretation: `<raw stderr content>` |
 | **Timeout**<br><br>(Exceeding 120 seconds) | Send `SIGKILL` to the child process via `node:child_process` to force termination, and return the following:<br><br>`[ERROR] pi-fc-search execution timeout exceeded (120 seconds).` |
 
 ---
@@ -172,7 +168,7 @@ Key files:
 - `src/api/routes.py` (lines 110-140) - Defines REST endpoints with auth integration
 ```
 
-* **Pass Condition**: Output contains meaningful context about authentication, includes file paths with line numbers, and matches the format returned by fastcontext CLI. The agent receives unmodified output and interprets it directly.
+* **Pass Condition**: Output contains meaningful context about authentication, includes file paths with line numbers, and matches the format returned by fastcontext CLI. The agent receives **unmodified output** and interprets it directly.
 
 ### 6.2 Test Case 2: Exception Path (Command Not Found)
 
@@ -194,6 +190,12 @@ Key files:
 
 * **Pass Condition**: String contains `[ERROR]` and `command not found`, and the system is safely handled as an error without crashing.
 
+### 6.3 Test Case 3: Pass-Through Verification (No Truncation)
+
+* **Input**: A query expected to produce large output (>50KB)
+* **Expected Output**: Complete output without any truncation markers or limits applied
+* **Pass Condition**: No `[Output truncated: ...]` messages appear in the output. The agent receives the full result.
+
 ---
 
 ## 7. Non-goals
@@ -201,6 +203,7 @@ Key files:
 1. **Automatic Code Modification / Patch Application**: This tool is specialized for "codebase exploration and identification," and does not have any modification features such as `sed`, `patch`, or file writing.
 2. **fastcontext Binary Management**: Providing pre-installation scripts for `fastcontext` and dependent tools (`ripgrep`, etc.) on the execution environment is out of scope.
 3. **Conversation Context Persistence**: Each tool call is completely stateless, and "interactive continuous exploration" that inherits past call history is not supported.
+4. **Output Processing / Formatting**: The wrapper does not perform any truncation, tag extraction, or formatting on fastcontext output. All interpretation is left to the agent.
 
 ---
 
@@ -218,75 +221,46 @@ Create `package.json` that declares metadata and tool interfaces recognizable by
 
 #### Task 3: Tool Execution Wrapper Handler Implementation (TypeScript)
 
-Using `spawn` from `node:child_process`, implement logic that receives input and executes `fastcontext -q "<prompt>" --citation` as an external process. Prevent stream buffer overflow using only standard `Buffer` operations, collect standard output, apply smart trimming, shape it into harness specification JSON, and return.
+Using `spawn` from `node:child_process`, implement logic that receives input and executes `fastcontext -q "<prompt>" --citation` as an external process. Collect standard output **without truncation or processing**, and return raw data to the agent.
 
 ---
 
-## 9. Environment Configuration and .env File Support
+## 9. Environment Configuration
 
-The extension supports loading environment variables from a `.env` file for convenient configuration management. This follows the same pattern as `pi-fa-merge`.
+The extension expects environment variables to be set externally in the execution environment. It does not load `.env` files automatically.
 
-### 9.1 .env File Format
+### 9.1 Required Environment Variables
 
-Create a `.env` file with the following variables:
+Before running `pi`, ensure the following environment variables are set:
 
-```env
-# API key for fastcontext authentication (optional)
-FASTCONTEXT_API_KEY=your-api-key-here
+```bash
+# API key for fastcontext authentication
+export API_KEY=your-api-key-here
 
-# Base URL of the fastcontext endpoint (optional)
-FASTCONTEXT_ENDPOINT=https://your-fastcontext-endpoint.com
+# Base URL of the fastcontext endpoint
+export BASE_URL=https://your-fastcontext-endpoint.com
 
-# Model name to use for fastcontext search (optional)
-FASTCONTEXT_MODEL=fastcontext-model-name
+# Model name to use for fastcontext search
+export MODEL=fastcontext-model-name
 ```
 
-### 9.2 .env File Loading Implementation
+### 9.2 Environment Variable Inheritance
 
-The extension loads `.env` files using only Node.js built-in modules (no external dependencies like `dotenv`):
+The extension passes `process.env` directly to the child process:
 
 ```typescript
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+const childEnv = {
+  ...process.env,
+};
 
-function loadEnvFile(): void {
-  const possiblePaths = [
-    path.join(process.cwd(), '.env'),
-    path.join(__dirname, '..', '.env'),
-    path.join(__dirname, '.env'),
-  ];
-
-  for (const envPath of possiblePaths) {
-    if (fs.existsSync(envPath)) {
-      const content = fs.readFileSync(envPath, 'utf-8');
-      const lines = content.split('\n');
-      
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith('#')) continue;
-        
-        const eqIndex = trimmed.indexOf('=');
-        if (eqIndex === -1) continue;
-        
-        const key = trimmed.substring(0, eqIndex).trim();
-        let value = trimmed.substring(eqIndex + 1).trim();
-        
-        // Remove surrounding quotes if present
-        if ((value.startsWith('"') && value.endsWith('"')) || 
-            (value.startsWith("'") && value.endsWith("'"))) {
-          value = value.slice(1, -1);
-        }
-        
-        process.env[key] = value;
-      }
-      return;
-    }
-  }
-}
-
-// Load at module initialization
-loadEnvFile();
+const child = spawn('fastcontext', args, {
+  cwd,
+  env: childEnv,
+  shell: false,
+});
 ```
+
+This ensures that all environment variables set in the parent process (including API credentials) are automatically available to `fastcontext`.
 
 ---
 
@@ -321,7 +295,7 @@ function validateInput(args: any): { description: string; prompt: string } {
   return { description, prompt };
 }
 
-// Example of execution handler internals
+// Example of execution handler internals - Pass-through design
 export async function handleSearch(rawArgs: any): Promise<string> {
   const { prompt } = validateInput(rawArgs);
 
@@ -329,7 +303,7 @@ export async function handleSearch(rawArgs: any): Promise<string> {
     // Explicitly set shell: false to defend against shell injection
     const child = spawn('fastcontext', ['-q', prompt, '--citation'], {
       cwd: process.cwd(),
-      env: process.env,
+      env: process.env,  // Pass through all environment variables
       shell: false 
     });
 
@@ -349,11 +323,11 @@ export async function handleSearch(rawArgs: any): Promise<string> {
         if (stderrData.includes('not found')) {
           return resolve('[ERROR] fastcontext command not found. Ensure the package is properly initialized.');
         }
-        return resolve('[ERROR] Subagent execution failed due to upstream LLM API error.');
+        // Return raw stderr for agent interpretation
+        return resolve(stderrData || '[ERROR] Subagent execution failed.');
       }
       
-      // Apply smart trimming logic using standard string operations (split, etc.)
-      // and resolve after formatting
+      // Pass through stdout without any processing or truncation
       resolve(stdoutData); 
     });
 

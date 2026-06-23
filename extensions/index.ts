@@ -7,7 +7,6 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { spawn, ChildProcess } from "node:child_process";
-import * as fs from "node:fs";
 import * as path from "node:path";
 
 // Tool input schema (JSON Schema format - zero external dependencies)
@@ -48,84 +47,14 @@ export interface SearchToolInput {
   use_citation: boolean;
 }
 
-// Truncation limits
-const MAX_LINES = 2000;
-const MAX_BYTES = 50000;
+// Timeout for fastcontext execution
 const TIMEOUT_SECONDS = 120;
-
-// ============================================================================
-// .env File Loader
-// ============================================================================
-
-function loadEnvFile(): void {
-  try {
-    // Try to find .env file in package directory
-    const possiblePaths = [
-      path.join(process.cwd(), '.env'),
-      path.join(__dirname, '..', '.env'),
-      path.join(__dirname, '.env'),
-    ];
-
-    for (const envPath of possiblePaths) {
-      if (fs.existsSync(envPath)) {
-        const content = fs.readFileSync(envPath, 'utf-8');
-        const lines = content.split('\n');
-        
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || trimmed.startsWith('#')) continue;
-          
-          const eqIndex = trimmed.indexOf('=');
-          if (eqIndex === -1) continue;
-          
-          const key = trimmed.substring(0, eqIndex).trim();
-          let value = trimmed.substring(eqIndex + 1).trim();
-          
-          // Remove surrounding quotes if present
-          if ((value.startsWith('"') && value.endsWith('"')) || 
-              (value.startsWith("'") && value.endsWith("'"))) {
-            value = value.slice(1, -1);
-          }
-          
-          process.env[key] = value;
-        }
-        
-        return; // Found and loaded .env file
-      }
-    }
-  } catch (error) {
-    // Silently fail - environment variables might be set externally
-    console.log(`[pi-fc-search] Warning: Could not load .env file: ${error}`);
-  }
-}
-
-// Load environment variables from .env file at module initialization
-loadEnvFile();
-
-// ============================================================================
-// Configuration from .env
-// ============================================================================
-
-const DEFAULT_FASTCONTEXT_API_KEY = "";
-const DEFAULT_FASTCONTEXT_ENDPOINT = "";
-const DEFAULT_FASTCONTEXT_MODEL = "";
-
-// pi-fc-search environment variables
-const FASTCONTEXT_API_KEY = process.env.FASTCONTEXT_API_KEY || DEFAULT_FASTCONTEXT_API_KEY;
-const FASTCONTEXT_ENDPOINT = process.env.FASTCONTEXT_ENDPOINT || DEFAULT_FASTCONTEXT_ENDPOINT;
-const FASTCONTEXT_MODEL = process.env.FASTCONTEXT_MODEL || DEFAULT_FASTCONTEXT_MODEL;
-
-// fastcontext CLI expects these environment variable names
-// These are only set in child process env to avoid conflicts with other projects
-const FC_API_KEY = FASTCONTEXT_API_KEY;
-const FC_BASE_URL = FASTCONTEXT_ENDPOINT;
-const FC_MODEL = FASTCONTEXT_MODEL;
 
 /**
  * Validates tool input parameters
  */
-function validateInput(args: unknown): { 
-  description: string; 
+function validateInput(args: unknown): {
+  description: string;
   prompt: string;
   max_turns: number;
   use_citation: boolean;
@@ -183,52 +112,10 @@ function validateInput(args: unknown): {
 }
 
 /**
- * Smart truncation for output
- * Preserves complete lines and code blocks
- */
-function truncateOutput(
-  content: string,
-  totalLines: number,
-  totalBytes: number
-): string {
-  const lines = content.split("\n");
-  
-  if (lines.length <= MAX_LINES && totalBytes <= MAX_BYTES) {
-    return content;
-  }
-
-  // Find the last complete line within limits
-  let truncatedLines: string[] = [];
-  let currentBytes = 0;
-  
-  for (const line of lines) {
-    const lineBytes = Buffer.byteLength(line + "\n", "utf8");
-    if (truncatedLines.length >= MAX_LINES || currentBytes + lineBytes > MAX_BYTES) {
-      break;
-    }
-    truncatedLines.push(line);
-    currentBytes += lineBytes;
-  }
-
-  // Check for unclosed code blocks
-  const truncatedContent = truncatedLines.join("\n");
-  const codeBlockMarkers = truncatedContent.match(/```/g) || [];
-  
-  // If odd number of markers, close the block
-  if (codeBlockMarkers.length % 2 !== 0) {
-    truncatedLines.push("```");
-  }
-
-  // Append truncation notice
-  truncatedLines.push(
-    `\n[Output truncated: ${truncatedLines.length}/${totalLines} lines (${currentBytes}B/${totalBytes}B).]`
-  );
-
-  return truncatedLines.join("\n");
-}
-
-/**
- * Executes fastcontext command and returns results
+ * Executes fastcontext command and returns results.
+ * 
+ * This implementation passes arguments directly to the CLI without any processing,
+ * and returns the raw stdout output to the agent for interpretation.
  */
 function executeFastcontext(
   prompt: string,
@@ -238,16 +125,16 @@ function executeFastcontext(
   useCitation: boolean = false
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    // Set fastcontext CLI environment variables
-    // Use FC_ prefixed variables to avoid conflicts, then map to CLI expected names
+    // fastcontext CLI expects these environment variable names.
+    // They should be set in the execution environment (.env or externally):
+    // - API_KEY: FastContext API key
+    // - BASE_URL: FastContext API endpoint URL  
+    // - MODEL: Model name to use
     const childEnv = {
       ...process.env,
-      API_KEY: FC_API_KEY,
-      BASE_URL: FC_BASE_URL,
-      MODEL: FC_MODEL,
     };
 
-    // Build command arguments
+    // Build command arguments - pass parameters directly to CLI
     const args: string[] = ["-q", prompt];
     args.push("--max-turns", maxTurns.toString());
     if (useCitation) {
@@ -316,27 +203,14 @@ function executeFastcontext(
           resolve("[ERROR] fastcontext command not found. Ensure the package is properly installed and available in PATH.");
           return;
         }
-        resolve("[ERROR] Subagent execution failed due to upstream LLM API error.");
+        // Return raw stderr for agent to interpret
+        resolve(stderrData || "[ERROR] Subagent execution failed.");
         return;
       }
 
-      // Check for no matching code found
-      if (!stdoutData.trim() || stdoutData.trim().length === 0) {
-        resolve(`### Summary\n\nNo relevant files or contexts found matching the query.`);
-        return;
-      }
-
-      // For citation mode, preserve the <final_answer> block without truncation
-      if (useCitation && stdoutData.includes("<final_answer>")) {
-        resolve(stdoutData);
-        return;
-      }
-
-      // Apply smart truncation for non-citation output
-      const totalLines = stdoutData.split("\n").length;
-      const totalBytes = Buffer.byteLength(stdoutData, "utf8");
-      const result = truncateOutput(stdoutData, totalLines, totalBytes);
-      resolve(result);
+      // Return raw stdout without any processing or truncation
+      // This allows the agent to see <final_answer> tags and explore logs directly
+      resolve(stdoutData);
     });
 
     // Handle process errors
@@ -382,23 +256,20 @@ export default function (pi: ExtensionAPI) {
       ctx
     ) {
       try {
-        const { description, prompt } = validateInput(params);
+        const validated = validateInput(params);
+        const { description, prompt, max_turns, use_citation } = validated;
 
         // Update progress
         onUpdate?.({
           content: [{ type: "text", text: `Searching: ${description}...` }],
         });
 
-        // Execute fastcontext search
-        // Environment variables from .env are automatically passed to child process
         // Convert cwd to absolute path
         const absoluteCwd = path.resolve(ctx.cwd);
         console.log(`[pi-fc-search] Using absolute CWD: ${absoluteCwd}`);
 
-        // Extract validated parameters
-        const { max_turns, use_citation } = validateInput(params);
-
-        // Execute fastcontext search with user-configurable parameters
+        // Execute fastcontext search with validated parameters
+        // Arguments are passed directly to CLI, output is returned raw
         const result = await executeFastcontext(
           prompt,
           absoluteCwd,
@@ -413,7 +284,7 @@ export default function (pi: ExtensionAPI) {
           details: { description, promptLength: prompt.length, max_turns, use_citation },
         };
       } catch (error) {
-        if (error.message.includes("cancelled")) {
+        if (error.message?.includes("cancelled")) {
           return {
             content: [{ type: "text", text: "Search was cancelled" }],
             isError: false,
