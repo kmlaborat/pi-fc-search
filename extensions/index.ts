@@ -25,10 +25,28 @@ const SearchToolSchema = {
       description: "Detailed natural language instruction or question for repository search",
       maxLength: 2000,
     },
+    max_turns: {
+      type: "integer",
+      description: "Maximum number of search turns. Default is 15 for thorough exploration.",
+      default: 15,
+      minimum: 1,
+      maximum: 50,
+    },
+    use_citation: {
+      type: "boolean",
+      description: "Enable citation mode (output only file paths and line numbers). Default is false for full context with summaries.",
+      default: false,
+    },
   },
 } as const;
 
-export type SearchToolInput = typeof SearchToolSchema;
+// Type for validated tool input (matches the return type of validateInput)
+export interface SearchToolInput {
+  description: string;
+  prompt: string;
+  max_turns: number;
+  use_citation: boolean;
+}
 
 // Truncation limits
 const MAX_LINES = 2000;
@@ -106,15 +124,18 @@ const FC_MODEL = FASTCONTEXT_MODEL;
 /**
  * Validates tool input parameters
  */
-/**
- * Validates tool input parameters
- */
-function validateInput(args: unknown): { description: string; prompt: string } {
+function validateInput(args: unknown): { 
+  description: string; 
+  prompt: string;
+  max_turns: number;
+  use_citation: boolean;
+} {
   if (!args || typeof args !== "object") {
     throw new Error("Invalid tool arguments: expected an object");
   }
 
-  const { description, prompt } = args as Record<string, unknown>;
+  const record = args as Record<string, unknown>;
+  const { description, prompt, max_turns, use_citation } = record;
 
   if (typeof description !== "string") {
     throw new Error("Missing or invalid 'description' parameter: must be a string");
@@ -136,7 +157,29 @@ function validateInput(args: unknown): { description: string; prompt: string } {
     throw new Error("'prompt' exceeds maximum length of 2000 characters");
   }
 
-  return { description, prompt };
+  // Validate max_turns with default value
+  let parsedMaxTurns: number;
+  if (max_turns === undefined || max_turns === null) {
+    parsedMaxTurns = 15; // Default for thorough exploration
+  } else if (typeof max_turns !== "number" || !Number.isInteger(max_turns)) {
+    throw new Error("'max_turns' must be an integer");
+  } else if (max_turns < 1 || max_turns > 50) {
+    throw new Error("'max_turns' must be between 1 and 50");
+  } else {
+    parsedMaxTurns = max_turns;
+  }
+
+  // Validate use_citation with default value
+  let parsedUseCitation: boolean;
+  if (use_citation === undefined || use_citation === null) {
+    parsedUseCitation = false; // Default: full context with summaries
+  } else if (typeof use_citation !== "boolean") {
+    throw new Error("'use_citation' must be a boolean");
+  } else {
+    parsedUseCitation = use_citation;
+  }
+
+  return { description, prompt, max_turns: parsedMaxTurns, use_citation: parsedUseCitation };
 }
 
 /**
@@ -185,47 +228,14 @@ function truncateOutput(
 }
 
 /**
- * Parses and formats citation block for display
- * FastContext with --citation returns <final_answer> block with file paths and line ranges
- */
-function formatCitationOutput(output: string): string {
-  // Check if output contains <final_answer> block from fastcontext --citation
-  const finalAnswerMatch = output.match(/<final_answer>\s*([\s\S]*?)\s*<\/final_answer>/);
-  
-  if (finalAnswerMatch) {
-    const content = finalAnswerMatch[1].trim();
-    if (content) {
-      // Format citation block for display
-      const lines = content.split("\n").filter(line => line.trim());
-      const formattedLines: string[] = [];
-      formattedLines.push("### Relevant Files");
-      formattedLines.push("");
-      for (const line of lines) {
-        // Parse file:line-range or file:line format
-        const match = line.match(/^(.+?):(\d+(?:-\d+)?)$/);
-        if (match) {
-          const [, file, range] = match;
-          formattedLines.push(`- **${file.trim()}**: lines [${range}]`);
-        } else if (line.trim()) {
-          formattedLines.push(`- ${line.trim()}`);
-        }
-      }
-      return formattedLines.join("\n");
-    }
-  }
-  
-  // Fallback: return original output if no final_answer block found
-  return output;
-}
-
-/**
  * Executes fastcontext command and returns results
  */
 function executeFastcontext(
   prompt: string,
   cwd: string,
   signal?: AbortSignal,
-  useCitation: boolean = true
+  maxTurns: number = 15,
+  useCitation: boolean = false
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     // Set fastcontext CLI environment variables
@@ -239,6 +249,7 @@ function executeFastcontext(
 
     // Build command arguments
     const args: string[] = ["-q", prompt];
+    args.push("--max-turns", maxTurns.toString());
     if (useCitation) {
       args.push("--citation");
     }
@@ -384,19 +395,22 @@ export default function (pi: ExtensionAPI) {
         const absoluteCwd = path.resolve(ctx.cwd);
         console.log(`[pi-fc-search] Using absolute CWD: ${absoluteCwd}`);
 
-        // Execute fastcontext search
+        // Extract validated parameters
+        const { max_turns, use_citation } = validateInput(params);
+
+        // Execute fastcontext search with user-configurable parameters
         const result = await executeFastcontext(
           prompt,
           absoluteCwd,
-          signal
+          signal,
+          max_turns,
+          use_citation
         );
 
-        // Format citation output for display
-        const formattedResult = formatCitationOutput(result);
-
+        // Return raw CLI output - let the agent interpret it directly
         return {
-          content: [{ type: "text", text: formattedResult }],
-          details: { description, promptLength: prompt.length },
+          content: [{ type: "text", text: result }],
+          details: { description, promptLength: prompt.length, max_turns, use_citation },
         };
       } catch (error) {
         if (error.message.includes("cancelled")) {

@@ -32,6 +32,8 @@ Call the `fc_search` tool with the following parameters:
 |-----------|------|-------------|
 | `description` | string | Short task description (3-5 words) |
 | `prompt` | string | Detailed natural language instruction or question |
+| `max_turns` | integer | Maximum search turns. Default is 15 for thorough exploration. Range: 1-50. |
+| `use_citation` | boolean | Enable citation mode (output only file paths and line numbers). Default is false for full context with summaries. |
 
 ### Example
 
@@ -44,16 +46,24 @@ Call the `fc_search` tool with the following parameters:
 
 ### Response Format
 
-The tool returns Markdown-formatted results with citation information:
+The tool returns the raw output from fastcontext CLI. The format depends on the `use_citation` parameter:
 
+**Default mode (`use_citation: false`):**
+Returns full natural language response with summaries, reasoning, and file contexts:
 ```markdown
-### Relevant Files
+Based on my analysis of the repository structure...
 
-- **src/auth/middleware.py**: lines [20-50]
-- **src/api/routes.py**: lines [110-140]
+Key files found:
+- Authentication middleware at `src/auth/middleware.py` (lines 20-50)
+  - Handles JWT token validation
+  - Implements role-based access control
+- API routing at `src/api/routes.py` (lines 110-140)
+  - Defines all REST endpoints
+  - Integrates with authentication layer
 ```
 
-The underlying fastcontext `--citation` flag returns a machine-readable `<final_answer>` block:
+**Citation mode (`use_citation: true`):**
+Returns machine-readable `<final_answer>` block with only file paths and line ranges:
 ```
 <final_answer>
 src/auth/middleware.py:20-50
@@ -61,7 +71,7 @@ src/api/routes.py:110-140
 </final_answer>
 ```
 
-This citation format follows the FastContext specification for compact evidence with file paths and line ranges.
+Use citation mode when you need compact, parseable output for programmatic processing. Default mode provides richer context for understanding the codebase.
 
 ## Best Practices
 

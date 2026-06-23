@@ -23,7 +23,7 @@ Implement Microsoft's fast repository exploration tool `fastcontext` (Python-bas
 
 ### 2.1 Extension / Tool Input Parameters (JSON Schema)
 
-The input structure when the main agent calls this tool via the `pi` platform. To prevent overly large inputs, a maximum character limit (`maxLength`) is explicitly added for `prompt`.
+The input structure when the main agent calls this tool via the `pi` platform. To prevent overly large inputs, a maximum character limit (`maxLength`) is explicitly added for `prompt`. Additional parameters allow fine-tuning search behavior.
 
 ```json
 {
@@ -38,6 +38,16 @@ The input structure when the main agent calls this tool via the `pi` platform. T
       "type": "string",
       "description": "Detailed natural language instruction or question for repository exploration.",
       "maxLength": 2000
+    },
+    "max_turns": {
+      "type": "integer",
+      "description": "Maximum number of search turns. Default is 15 for thorough exploration.",
+      "minimum": 1,
+      "maximum": 50
+    },
+    "use_citation": {
+      "type": "boolean",
+      "description": "Enable citation mode (output only file paths and line numbers). Default is false for full context with summaries."
     }
   },
   "required": ["description", "prompt"]
@@ -65,31 +75,47 @@ The input structure when the main agent calls this tool via the `pi` platform. T
 
 ### 3.1 Output Data Structure
 
-When tool execution succeeds, strictly return a Markdown string with the following structure. The format is fixed to allow the main agent to easily parse.
+The tool returns the raw output from fastcontext CLI. The format depends on the `use_citation` parameter:
 
+**Default mode (`use_citation: false`):**
+Returns full natural language response with summaries, reasoning, and file contexts:
 ```markdown
-### Summary
-[Summary text of exploration results by fastcontext]
+Based on my analysis of the repository structure...
 
-### Relevant Locations
-- **[File Path]**: lines [Start Line]-[End Line]
-
+Key files found:
+- Authentication middleware at `src/auth/middleware.py` (lines 20-50)
+  - Handles JWT token validation
+  - Implements role-based access control
+- API routing at `src/api/routes.py` (lines 110-140)
+  - Defines all REST endpoints
+  - Integrates with authentication layer
 ```
+
+**Citation mode (`use_citation: true`):**
+Returns machine-readable `<final_answer>` block with only file paths and line ranges:
+```
+<final_answer>
+src/auth/middleware.py:20-50
+src/api/routes.py:110-140
+</final_answer>
+```
+
+The main agent receives the unmodified CLI output and interprets it directly. No additional formatting or tag manipulation is applied by the wrapper.
 
 ### 3.2 Output Limits and Smart Truncation
 
 * **Maximum Lines**: 2,000 lines
 * **Maximum Bytes**: 50,000 bytes (approximately 50KB)
 
-When output exceeds these limits, a tail truncation process (`truncateTail`) is applied to prioritize maintaining the beginning portion (context summary and important locations). To comply with the harness input/output specification (JSON) and prevent Markdown syntax breakdown (missing closing tags) from mechanical byte cuts, smart trimming logic is implemented using only standard features.
+When output exceeds these limits in non-citation mode, a tail truncation process is applied to prioritize maintaining the beginning portion (context summary and important locations). Smart trimming logic preserves complete code blocks and appends a truncation notice.
 
 > **🔧 Smart Trimming Procedure (Implemented with Standard Features Only)**
 > 1. Decompose the string into lines using `split('\n')`, and extract up to the "last complete line" within the limits (lines and bytes).
-> 2. Among the extracted lines, count whether the start and end of code blocks (```) match. If the block is cut in the middle, automatically insert ``` at the end of the array to properly close the block.
+> 2. Among the extracted lines, count whether the start and end of code blocks (\`\`\`) match. If the block is cut in the middle, automatically insert \`\`\` at the end of the array to properly close the block.
 > 3. Append the following notification message at the end using standard template literals:
-> `[Output truncated: {outputLines}/{totalLines} lines ({outputBytes}B/{totalBytes}B). Full output: {tempFile}]`
+> `[Output truncated: {outputLines}/{totalLines} lines ({outputBytes}B/{totalBytes}B).]`
 >
-> **Note**: Citation mode (`--citation` flag) output containing `<final_answer>` blocks is **not truncated** to preserve the machine-readable format.
+> **Note**: In citation mode (`use_citation: true`), the raw `<final_answer>` block output is passed through without truncation to preserve the machine-readable format.
 > 
 > 
 
@@ -128,7 +154,7 @@ In the TypeScript wrapper handler layer, capture child process errors and return
 
 ### 6.1 Test Case 1: Happy Path (Authentication Processing Exploration)
 
-* **Input**:
+* **Input** (default mode with full context):
 ```json
 {
   "description": "Find authentication routing",
@@ -137,18 +163,16 @@ In the TypeScript wrapper handler layer, capture child process errors and return
 
 ```
 
-* **Expected Output**:
+* **Expected Output** (raw fastcontext output - varies by model response):
 ```markdown
-### Summary
-Authentication is processed via a custom middleware that validates JWT tokens. API routes are structurally split.
+Based on my analysis of the repository structure, authentication is processed via a custom middleware that validates JWT tokens. 
 
-### Relevant Locations
-- **src/auth/middleware.py**: lines 20-50
-- **src/api/routes.py**: lines 110-140
-
+Key files:
+- `src/auth/middleware.py` (lines 20-50) - Handles JWT validation and role-based access
+- `src/api/routes.py` (lines 110-140) - Defines REST endpoints with auth integration
 ```
 
-* **Pass Condition**: Output contains `### Summary` and `### Relevant Locations`, and can be correctly parsed as Markdown format.
+* **Pass Condition**: Output contains meaningful context about authentication, includes file paths with line numbers, and matches the format returned by fastcontext CLI. The agent receives unmodified output and interprets it directly.
 
 ### 6.2 Test Case 2: Exception Path (Command Not Found)
 
