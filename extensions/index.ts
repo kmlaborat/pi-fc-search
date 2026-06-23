@@ -7,6 +7,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { spawn, ChildProcess } from "node:child_process";
+import * as fs from "node:fs";
 import * as path from "node:path";
 
 // Tool input schema (JSON Schema format - zero external dependencies)
@@ -49,6 +50,74 @@ export interface SearchToolInput {
 
 // Timeout for fastcontext execution
 const TIMEOUT_SECONDS = 120;
+
+// ============================================================================
+// .env File Loader
+// ============================================================================
+
+function loadEnvFile(): void {
+  try {
+    // Try to find .env file in package directory
+    const possiblePaths = [
+      path.join(process.cwd(), '.env'),
+      path.join(__dirname, '..', '.env'),
+      path.join(__dirname, '.env'),
+    ];
+
+    for (const envPath of possiblePaths) {
+      if (fs.existsSync(envPath)) {
+        const content = fs.readFileSync(envPath, 'utf-8');
+        const lines = content.split('\n');
+        
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith('#')) continue;
+          
+          const eqIndex = trimmed.indexOf('=');
+          if (eqIndex === -1) continue;
+          
+          const key = trimmed.substring(0, eqIndex).trim();
+          let value = trimmed.substring(eqIndex + 1).trim();
+          
+          // Remove surrounding quotes if present
+          if ((value.startsWith('"') && value.endsWith('"')) || 
+              (value.startsWith("'") && value.endsWith("'"))) {
+            value = value.slice(1, -1);
+          }
+          
+          process.env[key] = value;
+        }
+        
+        return; // Found and loaded .env file
+      }
+    }
+  } catch (error) {
+    // Silently fail - environment variables might be set externally
+    console.log(`[pi-fc-search] Warning: Could not load .env file: ${error}`);
+  }
+}
+
+// Load environment variables from .env file at module initialization
+loadEnvFile();
+
+// ============================================================================
+// Configuration from .env
+// ============================================================================
+
+const DEFAULT_FASTCONTEXT_API_KEY = "";
+const DEFAULT_FASTCONTEXT_ENDPOINT = "";
+const DEFAULT_FASTCONTEXT_MODEL = "";
+
+// pi-fc-search environment variables
+const FASTCONTEXT_API_KEY = process.env.FASTCONTEXT_API_KEY || DEFAULT_FASTCONTEXT_API_KEY;
+const FASTCONTEXT_ENDPOINT = process.env.FASTCONTEXT_ENDPOINT || DEFAULT_FASTCONTEXT_ENDPOINT;
+const FASTCONTEXT_MODEL = process.env.FASTCONTEXT_MODEL || DEFAULT_FASTCONTEXT_MODEL;
+
+// fastcontext CLI expects these environment variable names
+// These are only set in child process env to avoid conflicts with other projects
+const FC_API_KEY = FASTCONTEXT_API_KEY;
+const FC_BASE_URL = FASTCONTEXT_ENDPOINT;
+const FC_MODEL = FASTCONTEXT_MODEL;
 
 /**
  * Validates tool input parameters
@@ -125,13 +194,13 @@ function executeFastcontext(
   useCitation: boolean = false
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    // fastcontext CLI expects these environment variable names.
-    // They should be set in the execution environment (.env or externally):
-    // - API_KEY: FastContext API key
-    // - BASE_URL: FastContext API endpoint URL  
-    // - MODEL: Model name to use
+    // Set fastcontext CLI environment variables
+    // Use FC_ prefixed variables to avoid conflicts, then map to CLI expected names
     const childEnv = {
       ...process.env,
+      API_KEY: FC_API_KEY,
+      BASE_URL: FC_BASE_URL,
+      MODEL: FC_MODEL,
     };
 
     // Build command arguments - pass parameters directly to CLI

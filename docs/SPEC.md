@@ -59,11 +59,21 @@ The input structure when the main agent calls this tool via the `pi` platform. T
 
 1. **Runtime Environment**: The `fastcontext` CLI (Python-based) must be installed in the `$PATH` of the execution container environment and be executable standalone.
 2. **Working Directory (cwd)**: Commands must be executed in the root directory of the target repository for exploration.
-3. **Authentication Environment Variables**: Environment variables required for LLM API calls made internally by `fastcontext` (`API_KEY`, `BASE_URL`, `MODEL`) must be set in the execution environment before running `pi`. These can be configured via:
+3. **Authentication Environment Variables**: Environment variables required for LLM API calls made internally by `fastcontext` must be configured. The extension supports multiple configuration methods:
    - Shell environment variables (exported before running pi)
-   - System-level environment configuration
+   - `.env` file in the package directory (automatically loaded at module initialization)
 
-   The extension does **not** load `.env` files automatically. Environment variables should be set externally and inherited by the child process.
+   The extension automatically loads `.env` from the following locations (in order of precedence):
+   1. Current working directory (`./.env`)
+   2. Package directory (`./extensions/../.env`)
+   3. Extension directory (`./extensions/.env`)
+
+   **Environment Variable Mapping**:
+   - `FASTCONTEXT_API_KEY` → mapped to `API_KEY` for CLI
+   - `FASTCONTEXT_ENDPOINT` → mapped to `BASE_URL` for CLI
+   - `FASTCONTEXT_MODEL` → mapped to `MODEL` for CLI
+
+   This mapping prevents conflicts when the same environment is used by other projects.
 
 4. **Prohibition of External Dependencies (Zero-Dependency)**: To prevent dependency bloat from `node_modules` and breaking changes due to future specification changes, **no external npm modules (`axios`, `lodash`, `zod`, etc.) are permitted**. All input/output validation, parsing, and formatting must be completed using only Node.js standard libraries (`node:util`, `node:path`, `node:child_process`, etc.) and the built-in `fetch`.
 
@@ -225,42 +235,86 @@ Using `spawn` from `node:child_process`, implement logic that receives input and
 
 ---
 
-## 9. Environment Configuration
+## 9. Environment Configuration and .env File Support
 
-The extension expects environment variables to be set externally in the execution environment. It does not load `.env` files automatically.
+The extension supports loading environment variables from a `.env` file for convenient configuration management.
 
-### 9.1 Required Environment Variables
+### 9.1 .env File Format
 
-Before running `pi`, ensure the following environment variables are set:
+Create a `.env` file with the following variables:
 
-```bash
-# API key for fastcontext authentication
-export API_KEY=your-api-key-here
+```env
+# API key for fastcontext authentication (optional)
+FASTCONTEXT_API_KEY=your-api-key-here
 
-# Base URL of the fastcontext endpoint
-export BASE_URL=https://your-fastcontext-endpoint.com
+# Base URL of the fastcontext endpoint (optional)
+FASTCONTEXT_ENDPOINT=https://your-fastcontext-endpoint.com
 
-# Model name to use for fastcontext search
-export MODEL=fastcontext-model-name
+# Model name to use for fastcontext search (optional)
+FASTCONTEXT_MODEL=fastcontext-model-name
 ```
 
-### 9.2 Environment Variable Inheritance
+### 9.2 .env File Loading Implementation
 
-The extension passes `process.env` directly to the child process:
+The extension loads `.env` files using only Node.js built-in modules (no external dependencies like `dotenv`):
+
+```typescript
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+
+function loadEnvFile(): void {
+  const possiblePaths = [
+    path.join(process.cwd(), '.env'),
+    path.join(__dirname, '..', '.env'),
+    path.join(__dirname, '.env'),
+  ];
+
+  for (const envPath of possiblePaths) {
+    if (fs.existsSync(envPath)) {
+      const content = fs.readFileSync(envPath, 'utf-8');
+      const lines = content.split('\n');
+      
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        
+        const eqIndex = trimmed.indexOf('=');
+        if (eqIndex === -1) continue;
+        
+        const key = trimmed.substring(0, eqIndex).trim();
+        let value = trimmed.substring(eqIndex + 1).trim();
+        
+        // Remove surrounding quotes if present
+        if ((value.startsWith('"') && value.endsWith('"')) || 
+            (value.startsWith("'") && value.endsWith("'"))) {
+          value = value.slice(1, -1);
+        }
+        
+        process.env[key] = value;
+      }
+      return;
+    }
+  }
+}
+
+// Load at module initialization
+loadEnvFile();
+```
+
+### 9.3 Environment Variable Mapping
+
+The extension maps `FASTCONTEXT_*` variables to CLI-expected names:
 
 ```typescript
 const childEnv = {
   ...process.env,
+  API_KEY: FASTCONTEXT_API_KEY,
+  BASE_URL: FASTCONTEXT_ENDPOINT,
+  MODEL: FASTCONTEXT_MODEL,
 };
-
-const child = spawn('fastcontext', args, {
-  cwd,
-  env: childEnv,
-  shell: false,
-});
 ```
 
-This ensures that all environment variables set in the parent process (including API credentials) are automatically available to `fastcontext`.
+This prevents conflicts when the same environment is used by other projects.
 
 ---
 
