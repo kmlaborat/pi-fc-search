@@ -243,6 +243,8 @@ function executeFastcontext(
       args.push("--citation");
     }
 
+    console.log(`[pi-fc-search] Spawning fastcontext with CWD: ${cwd}`);
+
     // Create child process without shell for security
     const child: ChildProcess = spawn(
       "fastcontext",
@@ -284,9 +286,11 @@ function executeFastcontext(
       stdoutData += chunk;
     });
 
-    // Collect stderr
+    // Collect stderr and log immediately for debugging
     child.stderr.on("data", (chunk) => {
-      stderrData += chunk;
+      const chunkStr = chunk.toString();
+      stderrData += chunkStr;
+      console.log(`[fastcontext stderr]: ${chunkStr}`);
     });
 
     // Handle process completion
@@ -376,9 +380,14 @@ export default function (pi: ExtensionAPI) {
 
         // Execute fastcontext search
         // Environment variables from .env are automatically passed to child process
+        // Convert cwd to absolute path
+        const absoluteCwd = path.resolve(ctx.cwd);
+        console.log(`[pi-fc-search] Using absolute CWD: ${absoluteCwd}`);
+
+        // Execute fastcontext search
         const result = await executeFastcontext(
           prompt,
-          ctx.cwd,
+          absoluteCwd,
           signal
         );
 
