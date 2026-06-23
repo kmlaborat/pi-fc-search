@@ -20,7 +20,39 @@ Use this skill when:
 
 ## Setup
 
-No additional setup required. The skill is automatically loaded with the pi-fc-search package.
+### Environment Variables
+
+Configure the fastcontext API credentials using one of these methods:
+
+**Method 1: .env file (recommended)**
+
+Create a `.env` file in your project root with:
+
+```env
+# API key for fastcontext authentication
+FASTCONTEXT_API_KEY=your-api-key-here
+
+# Base URL of the fastcontext endpoint
+FASTCONTEXT_ENDPOINT=https://your-fastcontext-endpoint.com
+
+# Model name to use for fastcontext search
+FASTCONTEXT_MODEL=fastcontext-model-name
+```
+
+**Method 2: Shell environment variables**
+
+```bash
+export FASTCONTEXT_API_KEY=your-api-key-here
+export FASTCONTEXT_ENDPOINT=https://your-fastcontext-endpoint.com
+export FASTCONTEXT_MODEL=fastcontext-model-name
+```
+
+The skill automatically loads `.env` files from the following locations (in order):
+1. Current working directory (`./.env`)
+2. Package directory (`./extensions/../.env`)
+3. Extension directory (`./extensions/.env`)
+
+No additional setup required otherwise. The skill is automatically loaded with the pi-fc-search package.
 
 ## Usage
 
@@ -46,7 +78,7 @@ Call the `fc_search` tool with the following parameters:
 
 ### Response Format
 
-The tool returns the raw output from fastcontext CLI. The format depends on the `use_citation` parameter:
+The tool returns the **raw output from fastcontext CLI without any processing or truncation**. The format depends on the `use_citation` parameter:
 
 **Default mode (`use_citation: false`):**
 Returns full natural language response with summaries, reasoning, and file contexts:
@@ -71,6 +103,8 @@ src/api/routes.py:110-140
 </final_answer>
 ```
 
+> **Note:** The output is passed through without any truncation or processing. All search logs, reasoning steps, and `<final_answer>` tags are returned in their original form for the agent to interpret directly.
+
 Use citation mode when you need compact, parseable output for programmatic processing. Default mode provides richer context for understanding the codebase.
 
 ## Best Practices
@@ -79,6 +113,7 @@ Use citation mode when you need compact, parseable output for programmatic proce
 2. **Start broad, then narrow**: Begin with general queries, then refine based on results
 3. **Use descriptions effectively**: Keep descriptions short but informative for tracking
 4. **Check for errors**: Handle cases where fastcontext is not installed or returns errors
+5. **Review full output**: Since output is not truncated, review all search logs and reasoning for complete context
 
 ## Limitations
 
@@ -86,4 +121,4 @@ Use citation mode when you need compact, parseable output for programmatic proce
 - Maximum prompt length: 2000 characters
 - Maximum description length: 100 characters
 - Execution timeout: 120 seconds
-- Output limited to 2000 lines or 50KB (whichever is reached first)
+- No output truncation - large responses are returned completely
