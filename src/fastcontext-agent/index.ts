@@ -1,0 +1,72 @@
+/**
+ * Public entry point for fastcontext agent.
+ */
+
+import { dirname, resolve } from "path";
+import { nanoid } from "nanoid";
+import type { LLMClient } from "./llm.js";
+import type { ToolSet } from "./tools/types.js";
+import { ReadTool } from "./tools/read.js";
+import { GlobTool } from "./tools/glob.js";
+import { GrepTool } from "./tools/grep.js";
+import { Agent } from "./agent.js";
+
+export interface RunFastContextAgentOptions {
+  prompt: string;
+  cwd: string; // absolute path, working directory the agent is scoped to
+  maxTurns?: number;           // default 15
+  citation?: boolean;          // default false — if true, return only <final_answer> block
+  trajectoryFile?: string;     // default: `${cwd}/.fastcontext/trajectory_<timestamp>.jsonl`
+  llm: {
+    model: string;
+    apiKey: string;
+    baseUrl: string;
+    temperature?: number;      // default 1.0
+    topP?: number;             // default 0.95
+    maxTokens?: number;        // default 32000
+    verbose?: boolean;
+  };
+  systemPrompt?: string;
+}
+
+/**
+ * Execute the FastContext agent with the given options.
+ */
+export async function runFastContextAgent(options: RunFastContextAgentOptions): Promise<string> {
+  const maxTurns = options.maxTurns ?? 15;
+  const citation = options.citation ?? false;
+
+  // Construct trajectory file path if not provided
+  let trajectoryFile = options.trajectoryFile;
+  if (!trajectoryFile) {
+    const timestamp = new Date().toISOString().replace(/[:.-]/g, "_");
+    trajectoryFile = `${options.cwd}/.fastcontext/trajectory_${timestamp}-${nanoid(8)}.jsonl`;
+  }
+
+  // Create LLM client with environment variables
+  const llmClient = new LLMClient(options.llm.model, options.llm.apiKey, options.llm.baseUrl, {
+    max_tokens: options.llm.maxTokens ?? 32000,
+    temperature: options.llm.temperature ?? 1.0,
+    top_p: options.llm.topP ?? 0.95,
+    verbose: options.llm.verbose ?? false
+  });
+
+  // Create tool set (read-only tools)
+  const toolset = new ToolSet([
+    new ReadTool(),
+    new GlobTool(),
+    new GrepTool()
+  ], options.cwd);
+
+  // Create and run agent
+  const agent = new Agent(
+    "FastContext",
+    llmClient,
+    toolset,
+    trajectoryFile,
+    options.cwd,
+    options.systemPrompt
+  );
+
+  return await agent.run(options.prompt, maxTurns, citation);
+}

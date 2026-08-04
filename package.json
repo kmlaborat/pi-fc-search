@@ -4,9 +4,32 @@
   "type": "module",
   "description": "Pi extension package for fastcontext repository search",
   "main": "extensions/index.ts",
-  "keywords": ["pi-package"],
+  "keywords": [
+    "pi-package"
+  ],
+  "scripts": {
+    "test": "vitest run --config=vitest.config.ts",
+    "lint": "eslint src/ extensions/ --ext .ts",
+    "typecheck": "tsc --noEmit --skipLibCheck --project tests/tsconfig.json"
+  },
+  "dependencies": {
+    "@vscode/ripgrep": "^1.16.x",
+    "nanoid": "^5.1.16"
+  },
   "pi": {
-    "extensions": ["./extensions"],
-    "skills": ["./skills"]
+    "extensions": [
+      "./extensions"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "devDependencies": {
+    "@types/chai": "^5.2.3",
+    "@types/node": "^26.1.2",
+    "@vitest/expect": "^4.1.10",
+    "chai": "^6.2.2",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
   }
 }

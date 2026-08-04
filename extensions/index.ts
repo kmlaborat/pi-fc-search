@@ -1,14 +1,14 @@
 /**
- * pi-fc-search Extension
+ * pi-fc-search Extension - In-process fastcontext search
  * 
- * Integrates Microsoft's fastcontext repository search tool with pi coding agent.
- * Allows the LLM to search large codebases efficiently without consuming excessive context tokens.
+ * Integrates Microsoft's fastcontext tool with pi coding agent using in-process TypeScript agent.
+ * No external Python process required.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { spawn, ChildProcess } from "node:child_process";
-import * as fs from "node:fs";
-import * as path from "node:path";
+import * as fs from "fs";
+import * as path from "path";
+import { runFastContextAgent, RunFastContextAgentOptions } from "../src/fastcontext-agent/index.js";
 
 // Tool input schema (JSON Schema format - zero external dependencies)
 const SearchToolSchema = {
@@ -40,7 +40,6 @@ const SearchToolSchema = {
   },
 } as const;
 
-// Type for validated tool input (matches the return type of validateInput)
 export interface SearchToolInput {
   description: string;
   prompt: string;
@@ -48,7 +47,7 @@ export interface SearchToolInput {
   use_citation: boolean;
 }
 
-// Timeout for fastcontext execution
+// Timeout for agent execution
 const TIMEOUT_SECONDS = 120;
 
 // ============================================================================
@@ -57,7 +56,6 @@ const TIMEOUT_SECONDS = 120;
 
 function loadEnvFile(): void {
   try {
-    // Try to find .env file in package directory
     const possiblePaths = [
       path.join(process.cwd(), '.env'),
       path.join(__dirname, '..', '.env'),
@@ -92,32 +90,20 @@ function loadEnvFile(): void {
       }
     }
   } catch (error) {
-    // Silently fail - environment variables might be set externally
     console.log(`[pi-fc-search] Warning: Could not load .env file: ${error}`);
   }
 }
 
-// Load environment variables from .env file at module initialization
+// Load environment variables at module initialization
 loadEnvFile();
 
 // ============================================================================
 // Configuration from .env
 // ============================================================================
 
-const DEFAULT_FASTCONTEXT_API_KEY = "";
-const DEFAULT_FASTCONTEXT_ENDPOINT = "";
-const DEFAULT_FASTCONTEXT_MODEL = "";
-
-// pi-fc-search environment variables
-const FASTCONTEXT_API_KEY = process.env.FASTCONTEXT_API_KEY || DEFAULT_FASTCONTEXT_API_KEY;
-const FASTCONTEXT_ENDPOINT = process.env.FASTCONTEXT_ENDPOINT || DEFAULT_FASTCONTEXT_ENDPOINT;
-const FASTCONTEXT_MODEL = process.env.FASTCONTEXT_MODEL || DEFAULT_FASTCONTEXT_MODEL;
-
-// fastcontext CLI expects these environment variable names
-// These are only set in child process env to avoid conflicts with other projects
-const FC_API_KEY = FASTCONTEXT_API_KEY;
-const FC_BASE_URL = FASTCONTEXT_ENDPOINT;
-const FC_MODEL = FASTCONTEXT_MODEL;
+const FASTCONTEXT_API_KEY = process.env.FASTCONTEXT_API_KEY || "";
+const FASTCONTEXT_ENDPOINT = process.env.FASTCONTEXT_ENDPOINT || "";
+const FASTCONTEXT_MODEL = process.env.FASTCONTEXT_MODEL || "";
 
 /**
  * Validates tool input parameters
@@ -135,21 +121,15 @@ function validateInput(args: unknown): {
   const record = args as Record<string, unknown>;
   const { description, prompt, max_turns, use_citation } = record;
 
-  if (typeof description !== "string") {
-    throw new Error("Missing or invalid 'description' parameter: must be a string");
-  }
-  if (description.length === 0) {
-    throw new Error("'description' cannot be empty");
+  if (typeof description !== "string" || description.length === 0) {
+    throw new Error("Missing or invalid 'description' parameter");
   }
   if (description.length > 100) {
     throw new Error("'description' exceeds maximum length of 100 characters");
   }
 
-  if (typeof prompt !== "string") {
-    throw new Error("Missing or invalid 'prompt' parameter: must be a string");
-  }
-  if (prompt.length === 0) {
-    throw new Error("'prompt' cannot be empty");
+  if (typeof prompt !== "string" || prompt.length === 0) {
+    throw new Error("Missing or invalid 'prompt' parameter");
   }
   if (prompt.length > 2000) {
     throw new Error("'prompt' exceeds maximum length of 2000 characters");
@@ -158,7 +138,7 @@ function validateInput(args: unknown): {
   // Validate max_turns with default value
   let parsedMaxTurns: number;
   if (max_turns === undefined || max_turns === null) {
-    parsedMaxTurns = 15; // Default for thorough exploration
+    parsedMaxTurns = 15;
   } else if (typeof max_turns !== "number" || !Number.isInteger(max_turns)) {
     throw new Error("'max_turns' must be an integer");
   } else if (max_turns < 1 || max_turns > 50) {
@@ -170,7 +150,7 @@ function validateInput(args: unknown): {
   // Validate use_citation with default value
   let parsedUseCitation: boolean;
   if (use_citation === undefined || use_citation === null) {
-    parsedUseCitation = false; // Default: full context with summaries
+    parsedUseCitation = false;
   } else if (typeof use_citation !== "boolean") {
     throw new Error("'use_citation' must be a boolean");
   } else {
@@ -181,116 +161,52 @@ function validateInput(args: unknown): {
 }
 
 /**
- * Executes fastcontext command and returns results.
- * 
- * This implementation passes arguments directly to the CLI without any processing,
- * and returns the raw stdout output to the agent for interpretation.
+ * Executes fastcontext agent in-process with timeout protection.
  */
-function executeFastcontext(
+async function executeAgent(
   prompt: string,
   cwd: string,
   signal?: AbortSignal,
   maxTurns: number = 15,
   useCitation: boolean = false
 ): Promise<string> {
-  return new Promise((resolve, reject) => {
-    // Set fastcontext CLI environment variables
-    // Use FC_ prefixed variables to avoid conflicts, then map to CLI expected names
-    const childEnv = {
-      ...process.env,
-      API_KEY: FC_API_KEY,
-      BASE_URL: FC_BASE_URL,
-      MODEL: FC_MODEL,
-    };
-
-    // Build command arguments - pass parameters directly to CLI
-    const args: string[] = ["-q", prompt];
-    args.push("--max-turns", maxTurns.toString());
-    if (useCitation) {
-      args.push("--citation");
+  
+  const options: RunFastContextAgentOptions = {
+    prompt,
+    cwd,
+    maxTurns,
+    citation: useCitation,
+    llm: {
+      model: FASTCONTEXT_MODEL || process.env.FASTCONTEXT_MODEL || "",
+      apiKey: FASTCONTEXT_API_KEY || process.env.FASTCONTEXT_API_KEY || "",
+      baseUrl: FASTCONTEXT_ENDPOINT || process.env.FASTCONTEXT_ENDPOINT || "",
     }
+  };
 
-    console.log(`[pi-fc-search] Spawning fastcontext with CWD: ${cwd}`);
-
-    // Create child process without shell for security
-    const child: ChildProcess = spawn(
-      "fastcontext",
-      args,
-      {
-        cwd,
-        env: childEnv,
-        shell: false,
-      }
-    );
-
-    let stdoutData = "";
-    let stderrData = "";
-    let isResolved = false;
-    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-
-    // Setup timeout
-    timeoutHandle = setTimeout(() => {
-      if (!isResolved) {
-        isResolved = true;
-        child.kill("SIGKILL");
-        resolve("[ERROR] pi-fc-search execution timeout exceeded (120 seconds).");
-      }
+  // Setup timeout using Promise.race
+  const timeoutPromise = new Promise<string>((_, reject) => {
+    setTimeout(() => {
+      reject(new Error("timeout"));
     }, TIMEOUT_SECONDS * 1000);
-
-    // Handle abort signal
-    const abortHandler = () => {
-      if (!isResolved) {
-        isResolved = true;
-        clearTimeout(timeoutHandle);
-        child.kill();
-        reject(new Error("Operation was cancelled"));
-      }
-    };
-    signal?.addEventListener("abort", abortHandler, { once: true });
-
-    // Collect stdout
-    child.stdout.on("data", (chunk) => {
-      stdoutData += chunk;
-    });
-
-    // Collect stderr and log immediately for debugging
-    child.stderr.on("data", (chunk) => {
-      const chunkStr = chunk.toString();
-      stderrData += chunkStr;
-      console.log(`[fastcontext stderr]: ${chunkStr}`);
-    });
-
-    // Handle process completion
-    child.on("close", (code) => {
-      if (isResolved) return;
-      isResolved = true;
-      clearTimeout(timeoutHandle);
-      signal?.removeEventListener("abort", abortHandler);
-
-      if (code !== 0) {
-        if (stderrData.includes("not found") || stderrData.includes("ENOENT")) {
-          resolve("[ERROR] fastcontext command not found. Ensure the package is properly installed and available in PATH.");
-          return;
-        }
-        // Return raw stderr for agent to interpret
-        resolve(stderrData || "[ERROR] Subagent execution failed.");
-        return;
-      }
-
-      // Return raw stdout without any processing or truncation
-      // This allows the agent to see <final_answer> tags and explore logs directly
-      resolve(stdoutData);
-    });
-
-    // Handle process errors
-    child.on("error", (err) => {
-      if (isResolved) return;
-      isResolved = true;
-      clearTimeout(timeoutHandle);
-      signal?.removeEventListener("abort", abortHandler);
-      reject(err);
-    });
   });
+
+  // Execute agent and race against timeout
+  const agentPromise = runFastContextAgent(options);
+  
+  try {
+    return await Promise.race([agentPromise, timeoutPromise]);
+  } catch (error) {
+    if (signal && signal.aborted) {
+      throw new Error("Operation was cancelled");
+    }
+    
+    if (error instanceof Error && error.message === "timeout") {
+      return "[ERROR] pi-fc-search execution timeout exceeded (120 seconds).";
+    }
+    
+    // Return raw error for agent to interpret
+    return `[ERROR] ${error instanceof Error ? error.message : "Unknown error occurred"}`;
+  }
 }
 
 /**
@@ -299,19 +215,19 @@ function executeFastcontext(
 export default function (pi: ExtensionAPI) {
   // Register session start handler
   pi.on("session_start", async (_event, ctx) => {
-    ctx.ui.notify("pi-fc-search extension loaded", "info");
+    ctx.ui.notify("pi-fc-search extension loaded (in-process mode)", "info");
   });
 
   // Register session shutdown handler for cleanup
   pi.on("session_shutdown", async (_event, _ctx) => {
-    // Cleanup resources here if needed
+    // Cleanup resources if needed
   });
 
   // Register the fastcontext search tool
   pi.registerTool({
     name: "fc_search",
     label: "FC Search",
-    description: "Search repository using fastcontext to find relevant code locations",
+    description: "Search repository using fastcontext to find relevant code locations (in-process)",
     promptSnippet: "Search codebase with natural language queries",
     promptGuidelines: [
       "Use fc_search when you need to find code patterns, understand architecture, or locate specific functionality in large codebases",
@@ -330,16 +246,15 @@ export default function (pi: ExtensionAPI) {
 
         // Update progress
         onUpdate?.({
-          content: [{ type: "text", text: `Searching: ${description}...` }],
+          content: [{ type: "text", text: `Searching: ${description}...` }]
         });
 
         // Convert cwd to absolute path
         const absoluteCwd = path.resolve(ctx.cwd);
         console.log(`[pi-fc-search] Using absolute CWD: ${absoluteCwd}`);
 
-        // Execute fastcontext search with validated parameters
-        // Arguments are passed directly to CLI, output is returned raw
-        const result = await executeFastcontext(
+        // Execute in-process agent (no external spawn required)
+        const result = await executeAgent(
           prompt,
           absoluteCwd,
           signal,
@@ -347,10 +262,9 @@ export default function (pi: ExtensionAPI) {
           use_citation
         );
 
-        // Return raw CLI output - let the agent interpret it directly
         return {
           content: [{ type: "text", text: result }],
-          details: { description, promptLength: prompt.length, max_turns, use_citation },
+          details: { description, promptLength: prompt.length, max_turns, use_citation }
         };
       } catch (error) {
         if (error.message?.includes("cancelled")) {

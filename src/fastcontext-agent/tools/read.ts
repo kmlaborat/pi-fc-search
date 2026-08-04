@@ -1,0 +1,140 @@
+/**
+ * Read tool - reads files from filesystem.
+ * Ported from src/fastcontext/agent/tool/read.py
+ */
+
+import { readFileSync, existsSync } from "fs";
+import { join, resolve } from "path";
+import { isWithinCwd } from "../utils.js";
+import type { Tool, CallContext, ToolResult } from "./types.js";
+
+export const MAX_LINE = 2000;
+export const MAX_LINE_LENGTH = 2000;
+
+// Read tool description (verbatim from Python source)
+const READ_DESCRIPTION = `Reads a file from the local filesystem. You can access any file directly by using this tool.
+If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.
+
+Usage:
+- You can optionally specify a line offset and limit (especially handy for long files), but it's recommended to read the whole file by not providing these parameters
+- Lines in the output are numbered starting at 1, using following format: LINE_NUMBER|LINE_CONTENT
+- You have the capability to call multiple tools in a single response. It is always better to speculatively read multiple files as a batch that are potentially useful.
+- If you read a file that exists but has empty contents you will receive 'File is empty.'
+- Any lines longer than 500 characters will be truncated to 500 characters with '...' appended to the end.
+- Any file content that exceeds the 2000 lines will be truncated to 2000 lines with '...' appended to the end.`;
+
+export class ReadTool implements Tool {
+  name = "Read";
+  description = READ_DESCRIPTION;
+  
+  parameters = {
+    type: "object",
+    properties: {
+      path: {
+        type: "string",
+        description: "The absolute path of the file to read."
+      },
+      offset: {
+        type: "integer",
+        description: "The line number to start reading from. Positive values are 1-indexed from the start of the file. Negative values count backwards from the end (e.g. -1 is the last line). Only provide if the file is too large to read at once."
+      },
+      limit: {
+        type: "integer",
+        description: "The number of lines to read. Only provide if the file is too large to read at once."
+      }
+    },
+    required: ["path"]
+  };
+
+  schema(): object {
+    return {
+      type: "function",
+      function: {
+        name: this.name,
+        description: this.description,
+        parameters: this.parameters
+      }
+    };
+  }
+
+  async call(params: string, ctx: CallContext): Promise<string> {
+    try {
+      const parsed = JSON.parse(params) as {
+        path: string;
+        offset?: number;
+        limit?: number;
+      };
+      
+      const filePath = parsed.path;
+      const offset = parsed.offset;
+      const limit = parsed.limit;
+
+      if (!filePath) {
+        return "Read Tool: file path is required.";
+      }
+
+      // Resolve and validate path
+      const resolvedPath = resolve(filePath);
+      const absoluteCwd = ctx.cwd;
+
+      if (!isWithinCwd(resolvedPath, absoluteCwd)) {
+        return `Permission error: \`${resolvedPath}\` is not within the working directory \`${absoluteCwd}\`.`;
+      }
+
+      if (!existsSync(resolvedPath)) {
+        return `Read Tool: file ${filePath} does not exist.`;
+      }
+
+      // Read file
+      const content = readFileSync(resolvedPath, "utf-8");
+      const lines = content.split("\n");
+
+      if (lines.length === 0) {
+        return "File is empty.";
+      }
+
+      // Calculate range
+      let startLine = 1;
+      if (offset !== undefined && offset > 0) {
+        startLine = offset;
+      }
+
+      let endLine = limit !== undefined ? startLine + limit - 1 : lines.length;
+      
+      // Clamp to file length
+      if (endLine > lines.length) {
+        endLine = lines.length;
+      }
+
+      // Cap at MAX_LINE
+      const totalLinesToRead = endLine - startLine + 1;
+      if (totalLinesToRead > MAX_LINE) {
+        endLine = startLine + MAX_LINE - 1;
+      }
+
+      // Build output with line numbers and prefixes
+      const outputLines: string[] = [];
+      
+      for (let i = startLine - 1; i < endLine && i < lines.length; i++) {
+        let line = lines[i];
+        
+        // Truncate long lines
+        if (line.length > MAX_LINE_LENGTH) {
+          line = line.slice(0, MAX_LINE_LENGTH) + "...";
+        }
+        
+        outputLines.push(`${i + 1}|${line}`);
+      }
+
+      // Add truncation indicator if needed
+      if (totalLinesToRead > MAX_LINE) {
+        outputLines.push("...");
+      }
+
+      const joinedContent = outputLines.join("\n");
+      return `\`\`\`${resolvedPath}:${startLine}-${endLine}\n${joinedContent}\n\`\`\``;
+    } catch (error) {
+      return `Read Tool error: ${error instanceof Error ? error.message : "Unknown error"}`;
+    }
+  }
+}
