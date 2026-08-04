@@ -87,11 +87,12 @@ export class ReadTool implements Tool {
 
       // Read file
       const content = readFileSync(resolvedPath, "utf-8");
-      const lines = content.split("\n");
-
-      if (lines.length === 0) {
+      
+      if (!content || content.trim() === "") {
         return "File is empty.";
       }
+      
+      const lines = content.split("\n");
 
       // Calculate range
       let startLine = 1;
