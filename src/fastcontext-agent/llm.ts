@@ -63,7 +63,7 @@ export class LLMClient {
     this.verbose = options?.verbose ?? false;
   }
 
-  async acall(messages: Message[], tools?: object[]): Promise<Message> {
+  async acall(messages: Message[], tools?: object[], signal?: AbortSignal): Promise<Message> {
     const payload: ChatCompletionPayload = {
       model: this.model,
       messages,
@@ -80,6 +80,11 @@ export class LLMClient {
     const url = `${baseUrl}/chat/completions`;
 
     try {
+      // Check for abort before fetch
+      if (signal && signal.aborted) {
+        throw new Error("Operation was cancelled");
+      }
+
       if (this.verbose) {
         console.log("[fastcontext] LLM Payload:", JSON.stringify(payload, null, 2));
       }
@@ -91,6 +96,7 @@ export class LLMClient {
           "Authorization": `Bearer ${this.apiKey}`,
         },
         body: JSON.stringify(payload),
+        signal, // Pass abort signal to fetch for cancellation
       });
 
       if (!response.ok) {

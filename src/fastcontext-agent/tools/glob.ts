@@ -100,20 +100,29 @@ export class GlobTool implements Tool {
   }
 
   private async runRipgrepSearch(directory: string, pattern: string, ctx: CallContext): Promise<string> {
-    // Get ripgrep path
+    // Get ripgrep path - first try bundled, then fallback to system PATH
     let rgPath = process.env.RIPGREP_PATH;
     
     if (!rgPath) {
       try {
         const rgModule = await import("@vscode/ripgrep");
         rgPath = rgModule.rgPath;
-      } catch {
-        throw new Error("Could not find ripgrep binary. Ensure @vscode/ripgrep is installed.");
+      } catch (error) {
+        console.warn("[fastcontext] Warning: Failed to load ripgrep from @vscode/ripgrep, trying system PATH");
+        // Fallback to system PATH resolution
+        const { spawnSync } = await import("child_process");
+        const result = spawnSync("which", ["rg"], { shell: true });
+        const pathResult = result.stdout.trim();
+        if (pathResult) {
+          console.warn(`[fastcontext] Warning: Using system ripgrep from ${pathResult}`);
+          return pathResult;
+        }
       }
     }
 
     if (!rgPath) {
-      throw new Error("Ripgrep not found. Install @vscode/ripgrep or set RIPGREP_PATH environment variable.");
+      console.error("[fastcontext] Error: Ripgrep not found. Install @vscode/ripgrep or ensure 'rg' is on PATH.");
+      throw new Error("Ripgrep not found. Install @vscode/ripgrep or ensure 'rg' is on PATH.");
     }
 
     return new Promise((resolve, reject) => {

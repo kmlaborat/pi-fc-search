@@ -11,6 +11,12 @@ import { Context } from "./context.js";
 import { loadSystemPrompt } from "./prompt.js";
 import { getFinalAnswer } from "./utils.js";
 
+export interface AgentRunOptions {
+  prompt: string;
+  maxTurns?: number;
+  citation?: boolean;
+  signal?: AbortSignal; // For cancellation support
+
 export class Agent {
   name: string;
   systemPrompt: string;
@@ -39,11 +45,14 @@ export class Agent {
     this.runId = nanoid(12);
   }
 
-  async run(prompt: string, maxTurns: number = 15, citation: boolean = false): Promise<string> {
-    return await this._agentLoop(prompt, maxTurns, citation);
+  async run(options: AgentRunOptions | { prompt: string; maxTurns?: number; citation?: boolean; signal?: AbortSignal }): Promise<string> {
+    const maxTurns = options.maxTurns ?? 15;
+    const citation = options.citation ?? false;
+    const signal = options.signal;
+    return await this._agentLoop(options.prompt as string, maxTurns, citation, signal);
   }
 
-  private async _agentLoop(prompt: string, maxTurns: number, citation: boolean): Promise<string> {
+  private async _agentLoop(prompt: string, maxTurns: number, citation: boolean, signal?: AbortSignal): Promise<string> {
     let nTurn = 0;
 
     // Add system prompt
@@ -53,6 +62,11 @@ export class Agent {
     await this.context.add({ role: "user", content: prompt });
 
     while (true) {
+      // Check for cancellation at start of each turn
+      if (signal && signal.aborted) {
+        throw new Error("Operation was cancelled");
+      }
+
       nTurn++;
       this.nTurn = nTurn;
 
@@ -73,7 +87,8 @@ export class Agent {
       try {
         const stepMessage = await this.llm.acall(
           this.context.getMessages(),
-          this.toolset.schemaList()
+          this.toolset.schemaList(),
+          signal // Pass abort signal to LLM client for cancellation
         );
 
         await this.context.add(stepMessage);

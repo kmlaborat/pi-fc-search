@@ -17,6 +17,7 @@ export interface RunFastContextAgentOptions {
   maxTurns?: number;           // default 15
   citation?: boolean;          // default false — if true, return only <final_answer> block
   trajectoryFile?: string;     // default: `${cwd}/.fastcontext/trajectory_<timestamp>.jsonl`
+  signal?: AbortSignal;        // For cancellation support
   llm: {
     model: string;
     apiKey: string;
@@ -68,5 +69,10 @@ export async function runFastContextAgent(options: RunFastContextAgentOptions): 
     options.systemPrompt
   );
 
-  return await agent.run(options.prompt, maxTurns, citation);
+  return await agent.run({
+    prompt: options.prompt,
+    maxTurns,
+    citation,
+    signal: options.signal // Pass abort signal for cancellation
+  });
 }
