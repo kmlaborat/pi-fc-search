@@ -4,7 +4,13 @@ Pi coding agent extension package for fastcontext repository search.
 
 ## Overview
 
-This package integrates Microsoft's fastcontext tool with the pi coding agent, enabling efficient codebase exploration without consuming excessive context tokens.
+This package integrates Microsoft's fastcontext tool with the pi coding agent, enabling efficient codebase exploration without consuming excessive context tokens. The implementation is ported from the Python version to TypeScript for in-process execution (no external Python process required).
+
+### Ported From
+
+- **Original Repository**: [manjunathshiva/fastcontext](https://github.com/manjunathshiva/fastcontext)
+- This is a preserved mirror of Microsoft's removed FastContext repo with fixes for local serving on macOS via mlx-lm
+- The TypeScript implementation maintains behavioral parity with the original Python version while running directly within the pi agent environment
 
 ## Features
 
@@ -31,11 +37,12 @@ pi install git:github.com/user/pi-fc-search
 
 ## Prerequisites
 
-### 1. fastcontext CLI Installation
+### 1. No External Dependencies
 
-[fastcontext](https://github.com/microsoft/fastcontext) must be installed.
+The ported implementation runs entirely in-process, requiring only Node.js runtime.
+No Python installation or fastcontext CLI is needed.
 
-### 2. Environment Configuration
+### 1. Environment Configuration
 
 You can configure environment variables in two ways:
 
@@ -63,12 +70,10 @@ export FASTCONTEXT_ENDPOINT="https://your-fastcontext-endpoint.com"
 export FASTCONTEXT_MODEL="FastContext-RL"
 ```
 
-### 3. No External Dependencies
+### 2. Dependencies
 
-This extension follows the **Zero-Dependency** principle:
-- Uses only Node.js built-in modules
-- No npm dependencies required
-- Type validation uses JSON Schema format (not typebox)
+This extension requires one npm dependency:
+- `@vscode/ripgrep` - Provides prebuilt ripgrep binary for file searching
 
 ## Usage
 
@@ -152,7 +157,18 @@ pi-fc-search/
 ├── README.md             # This file
 ├── .env.example          # Environment variable template
 ├── extensions/
-│   └── index.ts          # Extension entry point
+│   └── index.ts          # Extension entry point (port of fastcontext CLI)
+├── src/
+│   └── fastcontext-agent/ # Ported from Python implementation
+│       ├── agent.ts        # Agent loop
+│       ├── llm.ts         # LLM client
+│       ├── context.ts     # Trajectory management
+│       ├── prompt.ts      # System prompt loader
+│       ├── system.md      # System prompt template
+│       ├── tools/        # Tool implementations (Read, Glob, Grep)
+│       └── index.ts       # Public entry point
+├── tests/                # Test infrastructure
+│   └── tools/, utils/    # Unit test suites
 └── skills/
     └── pi-fc-search/
         └── SKILL.md      # Skill definition
@@ -183,6 +199,13 @@ This extension complies with the following SPEC requirements:
 - **Error Handling**: All 5 error types implemented (Section 5)
 - **Timeout**: 120 second timeout configured
 - **Tests**: Comprehensive test suite with node:test and node:assert
+
+## Acknowledgements
+
+This package ports the following upstream repository:
+- [manjunathshiva/fastcontext](https://github.com/manjunathshiva/fastcontext)
+  - Preserved mirror of Microsoft's removed FastContext repo (arXiv:2606.14066)
+  - With fixes for local serving on macOS via mlx-lm
 
 ## License
 
