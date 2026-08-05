@@ -36,7 +36,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          architecture: ${{ matrix.arch || 'x64' }}
 
       - name: Verify Python not required
         shell: bash
@@ -48,6 +47,16 @@ jobs:
             exit 1
           fi
           echo "✓ No Python dependencies in package.json"
+
+      - name: Show environment info
+        shell: bash
+        run: |
+          echo "=== Environment Information ==="
+          echo "OS: $RUNNER_OS"
+          echo "Architecture: $(node -p process.arch)"
+          echo "Platform: $(node -p process.platform)"
+          echo "Node version: $(node -v)"
+          echo "==============================="
 
       - name: Install dependencies
         run: npm ci
