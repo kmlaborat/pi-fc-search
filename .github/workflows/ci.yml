@@ -20,6 +20,11 @@ jobs:
             arch: x64
           - os: windows-latest
             arch: x64
+          # arm64 runners are not available for all platforms on GitHub Actions
+          # SPEC §7.5: "run on both x64 and arm64 runners if available"
+          # Uncomment the following when arm64 runners become available:
+          # - os: ubuntu-24.04-arm64
+          #   arch: arm64
     env:
       NODE_VERSION: '20'
 
@@ -31,7 +36,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          arch: ${{ matrix.arch || 'x64' }}
+          architecture: ${{ matrix.arch || 'x64' }}
 
       - name: Verify Python not required
         shell: bash
