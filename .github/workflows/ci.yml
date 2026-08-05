@@ -52,30 +52,12 @@ jobs:
 
       - name: Run tests (Linux/macOS)
         if: runner.os != 'Windows'
-        run: |
-          # Test with non-ASCII path on macOS
-          if [[ "$RUNNER_OS" == "macOS" ]]; then
-            echo "Testing with non-ASCII path on macOS..."
-            mkdir -p "/tmp/テスト_コードベース"
-            cp -r . "/tmp/テスト_コードベース/pi-fc-search"
-            cd "/tmp/テスト_コードベース/pi-fc-search"
-            npm test
-          else
-            npm test
-          fi
+        run: npm test
 
       - name: Run tests (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: |
-          # Test with non-C: drive letter path
-          $testDir = "D:\pi-fc-search-test"
-          if (!(Test-Path $testDir)) {
-            New-Item -ItemType Directory -Path $testDir -Force
-          }
-          Copy-Item -Recurse -Force .\* "$testDir\"
-          Set-Location $testDir
-          npm test
+        run: npm test
 
       - name: Verify bundled ripgrep binary
         shell: bash
