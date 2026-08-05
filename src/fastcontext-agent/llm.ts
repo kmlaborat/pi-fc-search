@@ -3,6 +3,8 @@
  * Ported from src/fastcontext/agent/llm.py
  */
 
+import { randomUUID } from "crypto";
+
 export interface Message {
   id?: string;
   role: "system" | "user" | "assistant" | "tool";
@@ -41,7 +43,6 @@ export class LLMClient {
   maxTokens: number;
   temperature: number;
   topP: number;
-  verbose: boolean;
 
   constructor(
     model: string,
@@ -51,7 +52,6 @@ export class LLMClient {
       max_tokens?: number;
       temperature?: number;
       top_p?: number;
-      verbose?: boolean;
     }
   ) {
     this.model = model;
@@ -60,7 +60,6 @@ export class LLMClient {
     this.maxTokens = options?.max_tokens ?? 32000;
     this.temperature = options?.temperature ?? 1.0;
     this.topP = options?.top_p ?? 0.95;
-    this.verbose = options?.verbose ?? false;
   }
 
   async acall(messages: Message[], tools?: object[], signal?: AbortSignal): Promise<Message> {
@@ -83,10 +82,6 @@ export class LLMClient {
       // Check for abort before fetch
       if (signal && signal.aborted) {
         throw new Error("Operation was cancelled");
-      }
-
-      if (this.verbose) {
-        console.log("[fastcontext] LLM Payload:", JSON.stringify(payload, null, 2));
       }
 
       const response = await fetch(url, {
@@ -153,6 +148,6 @@ export class LLMClient {
    * mlx-lm compatibility fix from upstream repo.
    */
   private synthesizeToolCallId(): string {
-    return `call_${Math.random().toString(36).substring(2, 14)}`;
+    return `call_${randomUUID().slice(0, 32)}`;
   }
 }

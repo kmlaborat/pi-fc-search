@@ -17,9 +17,9 @@ This package integrates Microsoft's fastcontext tool with the pi coding agent, e
 - **Natural language search**: Query your codebase with plain English questions
 - **Citation mode**: Returns machine-readable `<final_answer>` block with file paths and line ranges (fastcontext `--citation` flag)
 - **Context-efficient**: Returns only relevant file locations and summaries
-- **Smart truncation**: Automatically handles large outputs (except citation mode)
+- **Pass-through output**: Final answers returned without wrapper-level truncation
 - **Error handling**: Comprehensive error reporting and recovery
-- **Zero dependencies**: Uses only Node.js built-in modules
+- **Zero external dependencies**: Uses only `@vscode/ripgrep` (all other logic uses Node.js built-ins)
 
 ## Installation
 
@@ -37,10 +37,10 @@ pi install git:github.com/user/pi-fc-search
 
 ## Prerequisites
 
-### 1. No External Dependencies
+### 1. Ripgrep Dependency
 
-The ported implementation runs entirely in-process, requiring only Node.js runtime.
-No Python installation or fastcontext CLI is needed.
+The ported implementation requires one npm dependency:
+- `@vscode/ripgrep` - Provides prebuilt ripgrep binary for file searching (bundled, no system PATH required)
 
 ### 1. Environment Configuration
 
@@ -70,10 +70,12 @@ export FASTCONTEXT_ENDPOINT="https://your-fastcontext-endpoint.com"
 export FASTCONTEXT_MODEL="FastContext-RL"
 ```
 
-### 2. Dependencies
+### 3. Dependencies
 
-This extension requires one npm dependency:
+This extension requires exactly one npm dependency:
 - `@vscode/ripgrep` - Provides prebuilt ripgrep binary for file searching
+
+All other functionality uses only Node.js built-in modules (`node:fs`, `node:path`, `node:child_process`, `node:crypto`, global `fetch`).
 
 ## Usage
 
@@ -143,11 +145,12 @@ The extension handles the following error cases:
 
 | Error Type | Description | Recovery |
 |------------|-------------|----------|
-| CLI Not Found | fastcontext not installed or not in PATH | Install fastcontext CLI |
 | Missing Parameters | Invalid tool arguments | Provide valid description and prompt |
 | No Matching Code Found | Search returned no results | Refine search query |
 | LLM API Error | Upstream API failure | Check API configuration |
+| Ripgrep binary missing | Bundled binary unavailable | Ensure @vscode/ripgrep is installed |
 | Timeout | Operation exceeds 120 seconds | Simplify query or retry |
+| User Cancellation | Tool call cancelled during execution | Retry if needed |
 
 ## Package Structure
 
@@ -183,22 +186,27 @@ No build step required. The package uses TypeScript directly with jiti.
 ### Testing
 
 ```bash
-# Run tests with node:test
-node --test __tests__/extensions/index.test.ts
+# Run tests with vitest
+npm test
 
-# Run the extension in development mode
-pi -e ./extensions/index.ts
+# Run type checking
+npm run typecheck
+
+# Run linting
+npm run lint
 ```
 
 ### Compliance
 
 This extension complies with the following SPEC requirements:
 
-- **Zero-Dependency**: No external npm packages (typebox removed, JSON Schema used)
-- **Output Format**: SPEC-compliant Markdown format (Section 3.1)
-- **Error Handling**: All 5 error types implemented (Section 5)
-- **Timeout**: 120 second timeout configured
-- **Tests**: Comprehensive test suite with node:test and node:assert
+- **Single Dependency**: Only `@vscode/ripgrep` (all other logic uses Node.js built-ins)
+- **In-process Execution**: No external Python CLI spawn
+- **Output Pass-through**: Final answers returned without wrapper-level truncation
+- **Error Handling**: All error types implemented (SPEC §6)
+- **Timeout**: 120 second timeout with AbortSignal coordination
+- **Cancellation**: Cooperative cancellation via AbortSignal (SPEC §4.10)
+- **Tests**: Comprehensive test suite with vitest
 
 ## Acknowledgements
 

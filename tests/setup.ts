@@ -2,10 +2,43 @@
  * Test setup and utilities
  */
 
-import { resolve } from "path";
+import { resolve, dirname } from "path";
+import { fileURLToPath } from "url";
 import * as fs from "fs";
 
+// Vitest compatible __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
 export const TEST_FIXTURES_DIR = resolve(__dirname, "..", "__test_fixtures__");
+
+// Track if ripgrep is available for testing
+let ripgrepAvailable: boolean | undefined;
+
+export async function isRipgrepAvailable(): Promise<boolean> {
+  if (ripgrepAvailable !== undefined) {
+    return ripgrepAvailable;
+  }
+
+  try {
+    // Try to import @vscode/ripgrep and get rgPath
+    const rgModule = await import("@vscode/ripgrep");
+    ripgrepAvailable = !!rgModule.rgPath;
+    return ripgrepAvailable;
+  } catch {
+    // Check if system rg is available
+    try {
+      const { spawnSync } = await import("child_process");
+      const command = process.platform === "win32" ? "where" : "which";
+      const result = spawnSync(command, ["rg"], { shell: false });
+      ripgrepAvailable = result.status === 0;
+      return ripgrepAvailable;
+    } catch {
+      ripgrepAvailable = false;
+      return false;
+    }
+  }
+}
 
 // Create fixture files and directories before tests run
 export function setupTestFixtures(): void {

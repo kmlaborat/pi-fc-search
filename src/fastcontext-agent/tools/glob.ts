@@ -8,6 +8,7 @@ import { resolve } from "path";
 import { spawn } from "child_process";
 import { isWithinCwd } from "../utils.js";
 import type { Tool, CallContext, ToolResult } from "./types.js";
+import { getRgPath } from "./rg.js";
 
 const GLOB_DESCRIPTION = `- Fast file pattern matching tool that works with any codebase size
 - Supports glob patterns like "**/*.js" or "src/**/*.ts"
@@ -100,33 +101,10 @@ export class GlobTool implements Tool {
   }
 
   private async runRipgrepSearch(directory: string, pattern: string, ctx: CallContext): Promise<string> {
-    // Get ripgrep path - first try bundled, then fallback to system PATH
-    let rgPath = process.env.RIPGREP_PATH;
-    
-    if (!rgPath) {
-      try {
-        const rgModule = await import("@vscode/ripgrep");
-        rgPath = rgModule.rgPath;
-      } catch (error) {
-        console.warn("[fastcontext] Warning: Failed to load ripgrep from @vscode/ripgrep, trying system PATH");
-        // Fallback to system PATH resolution
-        const { spawnSync } = await import("child_process");
-        const result = spawnSync("which", ["rg"], { shell: true });
-        const pathResult = result.stdout.trim();
-        if (pathResult) {
-          console.warn(`[fastcontext] Warning: Using system ripgrep from ${pathResult}`);
-          return pathResult;
-        }
-      }
-    }
-
-    if (!rgPath) {
-      console.error("[fastcontext] Error: Ripgrep not found. Install @vscode/ripgrep or ensure 'rg' is on PATH.");
-      throw new Error("Ripgrep not found. Install @vscode/ripgrep or ensure 'rg' is on PATH.");
-    }
+    const rgPath = await getRgPath();
 
     return new Promise((resolve, reject) => {
-      const command = ["rg", "--files", directory, "--glob", pattern];
+      const command = ["--files", directory, "--glob", pattern];
       
       const child = spawn(rgPath, command, { cwd: ctx.cwd, shell: false });
       
@@ -149,8 +127,9 @@ export class GlobTool implements Tool {
 
       child.on("close", (code) => {
         clearTimeout(timeoutHandle);
-        
-        if (code === 0) {
+
+        // ripgrep exits 1 when no files found - this is not an error for us
+        if (code === 0 || code === 1) {
           resolve(stdout);
         } else {
           reject(new Error(stderr || `Ripgrep exited with code ${code}`));

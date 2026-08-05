@@ -75,8 +75,14 @@ export class ToolSet {
   }
 
   /**
-   * Execute tool call from message
-   * Sequential execution with per-call timeout and error isolation
+   * Execute tool calls from message.
+   * 
+   * Sequential execution (matching original Python implementation behavior).
+   * Per-call timeout of 10s and error isolation ensured.
+   * 
+   * SPEC §8.4: Original implementation processes sequentially; this port maintains
+   * that behavior for consistency, though parallelization with Promise.all is
+   * permissible if per-call error isolation and timeout are maintained.
    */
   async call(message: Message): Promise<ToolResult[]> {
     if (!message.tool_calls || message.tool_calls.length === 0) {
@@ -85,11 +91,12 @@ export class ToolSet {
 
     const results: ToolResult[] = [];
     
+    // Sequential execution - each call waits for the previous to complete
     for (const toolCall of message.tool_calls) {
       try {
         // Create timeout promise
         const timeoutPromise = new Promise<ToolResult>((_, reject) => {
-          setTimeout(() => reject(new Error(`Timeout after ${MAX_TOOLRUN_TIMEOUT}s`)), 
+          setTimeout(() => reject(new Error(`Tool timed out after ${MAX_TOOLRUN_TIMEOUT}s`)), 
             MAX_TOOLRUN_TIMEOUT * 1000);
         });
         
@@ -98,7 +105,7 @@ export class ToolSet {
         
         results.push(await Promise.race([execPromise, timeoutPromise]));
       } catch (error) {
-        // Isolate errors - don't cancel other calls
+        // Isolate errors - continue with remaining calls
         results.push({
           toolCallId: (toolCall as FunctionCall).id,
           output: error instanceof Error ? error.message : "Unknown error",
@@ -149,16 +156,17 @@ export class ToolSet {
 }
 
 /**
- * Helper to run ripgrep command
+ * Helper to run ripgrep command.
+ * Re-exported from centralized rg path resolver for consistency.
+ */
+export { getRgPath } from "./rg.js";
+
+/**
+ * @deprecated Use the centralized getRipgrep function in tools/rg.ts instead.
  */
 export async function runRipgrep(args: string[], cwd: string): Promise<string> {
-  // Import ripgrep path
-  const rgModule = await import("@vscode/ripgrep");
-  const rgPath = rgModule.rgPath || process.env.RIPGREP_PATH;
-  
-  if (!rgPath) {
-    throw new Error("Could not find ripgrep binary. Ensure @vscode/ripgrep is installed.");
-  }
+  const { getRgPath } = await import("./rg.js");
+  const rgPath = await getRgPath();
 
   return new Promise((resolve, reject) => {
     const child = spawn(rgPath, args, { cwd, shell: false });

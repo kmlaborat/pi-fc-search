@@ -6,6 +6,8 @@
 import { readFileSync } from "fs";
 import { resolve as pathResolve } from "path";
 
+import * as path from "node:path";
+
 /**
  * Check if a candidate path is within the specified working directory.
  * Windows-correct path containment implementation (SPEC §10)
@@ -13,16 +15,18 @@ import { resolve as pathResolve } from "path";
 export function isWithinCwd(candidate: string, cwd: string): boolean {
   const resolvedCwd = pathResolve(cwd);
   const resolvedCandidate = pathResolve(cwd, candidate);
-  const rel = require("node:path").relative(resolvedCwd, resolvedCandidate);
-  return rel === "" || (!rel.startsWith("..") && !require("node:path").isAbsolute(rel));
+  const rel = path.relative(resolvedCwd, resolvedCandidate);
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
 }
 
 /**
  * Extract <final_answer> block from text using regex.
  * Matches Python's get_final_answer implementation.
+ * Note: Uses greedy matching to capture all content between tags.
  */
 export function getFinalAnswer(text: string): string {
-  const match = /<final_answer>(.*?)<\/final_answer>/gs.exec(text);
+  // Use greedy matching with DOTALL flag to capture multiline content
+  const match = /<final_answer>([\s\S]*)<\/final_answer>/.exec(text);
   if (!match) {
     return text;
   }

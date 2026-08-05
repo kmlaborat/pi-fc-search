@@ -7,6 +7,7 @@ import { resolve } from "path";
 import { spawn } from "child_process";
 import { isWithinCwd } from "../utils.js";
 import type { Tool, CallContext, ToolResult } from "./types.js";
+import { getRgPath } from "./rg.js";
 
 const GREP_DESCRIPTION = `A powerful search tool built on ripgrep
 Usage:
@@ -32,6 +33,22 @@ interface RipgrepArgs {
   ignoreCase?: boolean;
   typeFilter?: string;
   headLimit?: number;
+  multiline?: boolean;
+}
+
+// Raw parsed arguments interface for JSON.parse result
+interface RawGrepArgs {
+  pattern: string;
+  path?: string;
+  glob?: string;
+  output_mode?: string;
+  "-B"?: number;
+  "-A"?: number;
+  "-C"?: number;
+  "-n"?: boolean;
+  "-i"?: boolean;
+  type?: string;
+  head_limit?: number;
   multiline?: boolean;
 }
 
@@ -109,7 +126,7 @@ export class GrepTool implements Tool {
 
   async call(params: string, ctx: CallContext): Promise<string> {
     try {
-      const parsed = JSON.parse(params) as RipgrepArgs & { output_mode?: string; "-B"?: number; "-A"?: number; "-C"?: number; type?: string };
+      const parsed = JSON.parse(params) as RawGrepArgs;
       
       // Apply defaults
       const rgArgs: RipgrepArgs = {
@@ -158,29 +175,7 @@ export class GrepTool implements Tool {
   }
 
   private async runRipgrepCommand(rgArgs: RipgrepArgs, ctx: CallContext): Promise<string> {
-    let rgPath = process.env.RIPGREP_PATH;
-    
-    if (!rgPath) {
-      try {
-        const rgModule = await import("@vscode/ripgrep");
-        rgPath = rgModule.rgPath;
-      } catch (error) {
-        console.warn("[fastcontext] Warning: Failed to load ripgrep from @vscode/ripgrep, trying system PATH");
-        // Fallback to system PATH resolution
-        const { spawnSync } = await import("child_process");
-        const result = spawnSync("which", ["rg"], { shell: true });
-        const pathResult = result.stdout.trim();
-        if (pathResult) {
-          console.warn(`[fastcontext] Warning: Using system ripgrep from ${pathResult}`);
-          return pathResult;
-        }
-      }
-    }
-
-    if (!rgPath) {
-      console.error("[fastcontext] Error: Ripgrep not found. Install @vscode/ripgrep or ensure 'rg' is on PATH.");
-      throw new Error("Ripgrep not found. Install @vscode/ripgrep or ensure 'rg' is on PATH.");
-    }
+    const rgPath = await getRgPath();
 
     // Build command arguments (following Python implementation exactly)
     const command = [rgArgs.pattern];
@@ -205,19 +200,19 @@ export class GrepTool implements Tool {
       command.push("--multiline", "--multiline-dotall");
     }
 
-    // Handle output modes - NOTE: preserve upstream quirk with "count_matches" 
-    // Python code uses "count_matches" internally despite schema saying "count"
-    const effectiveMode = rgArgs.outputMode === "content" ? "content" : rgArgs.outputMode || "files_with_matches";
+    // Handle output modes
+    // NOTE: Upstream quirk preserved - schema enum has "count" but Python code uses "count_matches"
+    // The agent may send either value; both map to --count-matches flag
+    const outputMode = rgArgs.outputMode || "content";
     
-    if (effectiveMode === "content") {
+    if (outputMode === "content") {
       if (rgArgs.beforeContext) command.push("-B", String(rgArgs.beforeContext));
       if (rgArgs.afterContext) command.push("-A", String(rgArgs.afterContext));
       if (rgArgs.context) command.push("-C", String(rgArgs.context));
       if (rgArgs.lineNumbers) command.push("-n");
-    } else if (effectiveMode === "files_with_matches") {
+    } else if (outputMode === "files_with_matches") {
       command.push("--files-with-matches");
-    } else if (effectiveMode === "count_matches" || effectiveMode === "count") {
-      // Support both variants for backwards compatibility
+    } else if (outputMode === "count" || outputMode === "count_matches" as any) {
       command.push("--count-matches");
     }
 

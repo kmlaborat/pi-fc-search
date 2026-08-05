@@ -117,8 +117,9 @@ Use citation mode when you need compact, parseable output for programmatic proce
 
 ## Limitations
 
-- Requires fastcontext CLI to be installed in the system PATH
+- Requires @vscode/ripgrep package (bundled with pi-fc-search)
 - Maximum prompt length: 2000 characters
 - Maximum description length: 100 characters
 - Execution timeout: 120 seconds
 - No output truncation - large responses are returned completely
+- No external dependencies beyond @vscode/ripgrep (uses only Node.js built-in modules)

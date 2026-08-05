@@ -90,7 +90,8 @@ function loadEnvFile(): void {
       }
     }
   } catch (error) {
-    console.log(`[pi-fc-search] Warning: Could not load .env file: ${error}`);
+    // Log error for debugging but continue - don't crash extension on .env issues
+    console.error(`[pi-fc-search] Warning: Failed to load .env files. API key and configuration may not be available.`);
   }
 }
 
@@ -162,6 +163,7 @@ function validateInput(args: unknown): {
 
 /**
  * Executes fastcontext agent in-process with timeout protection.
+ * Uses AbortSignal for both timeout and user cancellation (SPEC §4.10).
  */
 async function executeAgent(
   prompt: string,
@@ -171,11 +173,32 @@ async function executeAgent(
   useCitation: boolean = false
 ): Promise<string> {
   
+  // Create controller for timeout/cancellation coordination
+  const controller = new AbortController();
+  
+  // Setup timeout that aborts the controller
+  const timeoutId = setTimeout(() => {
+    controller.abort(new Error("timeout"));
+  }, TIMEOUT_SECONDS * 1000);
+  
+  // Link user cancellation signal to controller
+  if (signal) {
+    signal.addEventListener("abort", () => {
+      controller.abort(new Error("cancelled"));
+    });
+  }
+  
+  // Cleanup on completion or abort
+  controller.signal.addEventListener("abort", () => {
+    clearTimeout(timeoutId);
+  });
+
   const options: RunFastContextAgentOptions = {
     prompt,
     cwd,
     maxTurns,
     citation: useCitation,
+    signal: controller.signal,
     llm: {
       model: FASTCONTEXT_MODEL || process.env.FASTCONTEXT_MODEL || "",
       apiKey: FASTCONTEXT_API_KEY || process.env.FASTCONTEXT_API_KEY || "",
@@ -183,25 +206,24 @@ async function executeAgent(
     }
   };
 
-  // Setup timeout using Promise.race
-  const timeoutPromise = new Promise<string>((_, reject) => {
-    setTimeout(() => {
-      reject(new Error("timeout"));
-    }, TIMEOUT_SECONDS * 1000);
-  });
-
-  // Execute agent and race against timeout
-  const agentPromise = runFastContextAgent(options);
-  
   try {
-    return await Promise.race([agentPromise, timeoutPromise]);
+    return await runFastContextAgent(options);
   } catch (error) {
-    if (signal && signal.aborted) {
+    // Handle timeout
+    if (controller.signal.reason instanceof Error && 
+        controller.signal.reason.message === "timeout") {
+      return "[ERROR] pi-fc-search execution timeout exceeded (120 seconds).";
+    }
+    
+    // Handle user cancellation
+    if (controller.signal.reason instanceof Error && 
+        controller.signal.reason.message === "cancelled") {
       throw new Error("Operation was cancelled");
     }
     
-    if (error instanceof Error && error.message === "timeout") {
-      return "[ERROR] pi-fc-search execution timeout exceeded (120 seconds).";
+    // Handle AbortError from fetch
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("Operation was cancelled");
     }
     
     // Return raw error for agent to interpret
@@ -251,7 +273,6 @@ export default function (pi: ExtensionAPI) {
 
         // Convert cwd to absolute path
         const absoluteCwd = path.resolve(ctx.cwd);
-        console.log(`[pi-fc-search] Using absolute CWD: ${absoluteCwd}`);
 
         // Execute in-process agent (no external spawn required)
         const result = await executeAgent(
@@ -267,14 +288,15 @@ export default function (pi: ExtensionAPI) {
           details: { description, promptLength: prompt.length, max_turns, use_citation }
         };
       } catch (error) {
-        if (error.message?.includes("cancelled")) {
+        if (error instanceof Error && error.message?.includes("cancelled")) {
+          // Return non-error response for user cancellation (SPEC §6)
           return {
             content: [{ type: "text", text: "Search was cancelled" }],
             isError: false,
           };
         }
         return {
-          content: [{ type: "text", text: `[ERROR] ${error.message}` }],
+          content: [{ type: "text", text: `[ERROR] ${error instanceof Error ? error.message : "Unknown error"}` }],
           isError: true,
         };
       }

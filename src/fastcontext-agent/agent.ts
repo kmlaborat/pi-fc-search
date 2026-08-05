@@ -3,7 +3,7 @@
  * Ported from src/fastcontext/agent/agent.py
  */
 
-import { nanoid } from "nanoid";
+import { randomUUID } from "crypto";
 import type { LLMClient, Message, FunctionCall as LlmFunctionCall } from "./llm.js";
 import { RequestyAPIError } from "./llm.js";
 import type { ToolSet, FunctionCall } from "./tools/types.js";
@@ -16,6 +16,7 @@ export interface AgentRunOptions {
   maxTurns?: number;
   citation?: boolean;
   signal?: AbortSignal; // For cancellation support
+}
 
 export class Agent {
   name: string;
@@ -32,20 +33,19 @@ export class Agent {
     llm: LLMClient,
     toolset: ToolSet,
     trajectoryFile: string,
-    workDir: string,
-    systemPrompt?: string
+    workDir: string
   ) {
     this.name = name;
-    this.systemPrompt = systemPrompt || loadSystemPrompt(workDir);
+    this.systemPrompt = loadSystemPrompt(workDir);
     this.llm = llm;
     this.toolset = toolset;
     this.context = new Context(trajectoryFile);
     this.workDir = workDir;
     this.nTurn = 0;
-    this.runId = nanoid(12);
+    this.runId = randomUUID().slice(0, 12);
   }
 
-  async run(options: AgentRunOptions | { prompt: string; maxTurns?: number; citation?: boolean; signal?: AbortSignal }): Promise<string> {
+  async run(options: AgentRunOptions): Promise<string> {
     const maxTurns = options.maxTurns ?? 15;
     const citation = options.citation ?? false;
     const signal = options.signal;
@@ -92,10 +92,6 @@ export class Agent {
         );
 
         await this.context.add(stepMessage);
-
-        if (this.llm.verbose) {
-          console.log(`Turn ${nTurn}:`, JSON.stringify(stepMessage, null, 2));
-        }
 
         // If LLM requested tool calls, execute them
         if (stepMessage.tool_calls && stepMessage.tool_calls.length > 0) {

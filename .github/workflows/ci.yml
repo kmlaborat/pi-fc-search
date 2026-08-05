@@ -1,89 +1,141 @@
-name: CI - Cross-platform Tests
+name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
   pull_request:
-    branches: [main, master]
+    branches: [main]
 
 jobs:
   test:
+    name: Test on ${{ matrix.os }} (${{ matrix.arch || 'x64' }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        node-version: [18, 20]
-    
+        include:
+          - os: ubuntu-latest
+            arch: x64
+          - os: macos-latest
+            arch: x64
+          - os: windows-latest
+            arch: x64
+    env:
+      NODE_VERSION: '20'
+
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Run linting
-        run: npx eslint src/ extensions/ --ext .ts || echo "ESLint not configured yet"
-
-      - name: Verify TypeScript types
-        run: npx tsc --noEmit --skipLibCheck --project tests/tsconfig.json || echo "Type errors noted but test continues"
-
-      - name: Run tests
-        run: npm test || echo "Test suite not fully implemented yet"
-
-  # Windows-specific cross-drive tests
-  test-windows-crossdrive:
-    runs-on: windows-latest
-    steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
-        with: node-version: 20
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          arch: ${{ matrix.arch || 'x64' }}
+
+      - name: Remove Python from PATH (cross-platform)
+        shell: bash
+        run: |
+          # Remove Python and related paths from PATH
+          export PATH=$(echo $PATH | tr ':' '\n' | grep -v python | tr '\n' ':')
+          echo "PATH=$PATH" >> $GITHUB_ENV
+
+      - name: Remove Python from PATH (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $newPath = $env:PATH -split ';' | Where-Object { $_.ToLower() -notmatch 'python' } -join ';'
+          echo "PATH=$newPath" >> $env:GITHUB_ENV
+
+      - name: Verify Python not available
+        shell: bash
+        run: |
+          if command -v python &> /dev/null || command -v python3 &> /dev/null; then
+            echo "ERROR: Python should not be available in PATH"
+            exit 1
+          fi
+          echo "✓ Python not found in PATH"
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
-      - name: Run tests on D: drive (if available)
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Run tests (Linux/macOS)
+        if: runner.os != 'Windows'
         run: |
-          if (Test-Path "D:\") {
-            Set-Location D:\
-            Copy-Item "$env:GITHUB_WORKSPACE/*" -Recurse -Force .\pi-fc-search
-            Set-Location D:\pi-fc-search
+          # Test with non-ASCII path on macOS
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            echo "Testing with non-ASCII path on macOS..."
+            mkdir -p "/tmp/テスト_コードベース"
+            cp -r . "/tmp/テスト_コードベース/pi-fc-search"
+            cd "/tmp/テスト_コードベース/pi-fc-search"
             npm test
-          } else {
-            Write-Host "D: drive not available, skipping cross-drive test"
-          }
-        shell: pwsh
+          else
+            npm test
+          fi
 
-      - name: Verify path containment on Windows
+      - name: Run tests (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          # Test that the path utility correctly handles Windows paths
-          $testScript = @"
-          import { isWithinCwd } from './src/fastcontext-agent/utils.js';
-          
-          // Test various Windows path scenarios
-          console.log("Testing Windows path containment...");
-          
-          const tests = [
-            ["C:\\workspace\\project", "C:\\workspace\\project\\src\\file.ts", true],
-            ["C:\\workspace\\project", "c:\\workspace\\project\\src\\file.ts", true], // Case insensitive
-            ["C:\\workspace\\project", "D:\\workspace\\project\\src\\file.ts", false], // Different drive
-          ];
-          
-          for (const [cwd, path, expected] of tests) {
-            const result = isWithinCwd(path, cwd);
-            console.log(`${result === expected ? "PASS" : "FAIL"}: ${path} ${expected ? "should be in" : "should not be in"} ${cwd}`);
+          # Test with non-C: drive letter path
+          $testDir = "D:\pi-fc-search-test"
+          if (!(Test-Path $testDir)) {
+            New-Item -ItemType Directory -Path $testDir -Force
           }
+          Copy-Item -Recurse -Force .\* "$testDir\"
+          Set-Location $testDir
+          npm test
+
+      - name: Verify bundled ripgrep binary
+        shell: bash
+        run: |
+          # Verify @vscode/ripgrep provides rg binary
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            rg_path=$(node -e "const {rgPath} = require('@vscode/ripgrep'); console.log(rgPath)")
+          else
+            rg_path=$(node -e "const {rgPath} = require('@vscode/ripgrep'); console.log(rgPath)")
+          fi
           
-          console.log("All Windows path tests passed!");
-          "@@
+          if [[ -z "$rg_path" ]]; then
+            echo "ERROR: rgPath not provided by @vscode/ripgrep"
+            exit 1
+          fi
           
-          $testScript | Out-File -Encoding UTF8 "test-windows-paths.ts"
-          npx ts-node --esm test-windows-paths.ts
+          echo "✓ Ripgrep binary found at: $rg_path"
+          
+          # Test that the binary is executable
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            $rg_path --version
+          else
+            "$rg_path" --version
+          fi
+
+      - name: Verify no Python dependency
+        shell: bash
+        run: |
+          # Verify no Python imports or spawn calls in source
+          if grep -r "child_process.*spawn.*fastcontext" src/ extensions/; then
+            echo "ERROR: Found spawn call for fastcontext CLI"
+            exit 1
+          fi
+          
+          if grep -r "import.*python" src/ extensions/; then
+            echo "ERROR: Found Python import"
+            exit 1
+          fi
+          
+          echo "✓ No Python dependencies found"
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npm run lint || echo "Lint warnings (non-blocking)"

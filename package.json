@@ -13,8 +13,7 @@
     "typecheck": "tsc --noEmit --skipLibCheck --project tests/tsconfig.json"
   },
   "dependencies": {
-    "@vscode/ripgrep": "^1.16.x",
-    "nanoid": "^5.1.16"
+    "@vscode/ripgrep": "^1.16.x"
   },
   "pi": {
     "extensions": [
