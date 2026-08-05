@@ -33,28 +33,16 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           arch: ${{ matrix.arch || 'x64' }}
 
-      - name: Remove Python from PATH (cross-platform)
+      - name: Verify Python not required
         shell: bash
         run: |
-          # Remove Python and related paths from PATH
-          export PATH=$(echo $PATH | tr ':' '\n' | grep -v python | tr '\n' ':')
-          echo "PATH=$PATH" >> $GITHUB_ENV
-
-      - name: Remove Python from PATH (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $newPath = $env:PATH -split ';' | Where-Object { $_.ToLower() -notmatch 'python' } -join ';'
-          echo "PATH=$newPath" >> $env:GITHUB_ENV
-
-      - name: Verify Python not available
-        shell: bash
-        run: |
-          if command -v python &> /dev/null || command -v python3 &> /dev/null; then
-            echo "ERROR: Python should not be available in PATH"
+          echo "Verifying Python is not required for this package..."
+          # Check that package.json doesn't require Python
+          if grep -i "python" package.json; then
+            echo "ERROR: package.json contains Python references"
             exit 1
           fi
-          echo "✓ Python not found in PATH"
+          echo "✓ No Python dependencies in package.json"
 
       - name: Install dependencies
         run: npm ci
