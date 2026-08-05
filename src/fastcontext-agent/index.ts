@@ -4,8 +4,8 @@
 
 import { randomUUID } from "crypto";
 import { dirname, resolve } from "path";
-import type { LLMClient } from "./llm.js";
-import type { ToolSet } from "./tools/types.js";
+import { LLMClient } from "./llm.js";
+import { ToolSet } from "./tools/types.js";
 import { ReadTool } from "./tools/read.js";
 import { GlobTool } from "./tools/glob.js";
 import { GrepTool } from "./tools/grep.js";

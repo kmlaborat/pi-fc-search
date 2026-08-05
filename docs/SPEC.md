@@ -150,12 +150,19 @@ implementation detail and must not alter what the main agent sends:
 3. **Authentication Environment Variables**: Environment variables required for the sub-agent's
    own LLM API calls must be configured. The extension supports multiple configuration methods:
    - Shell environment variables (exported before running `pi`)
-   - `.env` file in the package directory (automatically loaded at module initialization)
+   - `.env` file (automatically loaded at module initialization)
 
    The extension automatically loads `.env` from the following locations (in order of precedence):
-   1. Current working directory (`./.env`)
-   2. Package directory (`./extensions/../.env`)
-   3. Extension directory (`./extensions/.env`)
+   1. Current working directory (`process.cwd()/.env`)
+   2. Package directory (resolved from `import.meta.url`, typically project root level)
+   3. Node modules shared environment (`node_modules/.env`)
+
+   **Environment Variable Mapping** (naming convention unchanged from the original design, to
+   avoid a breaking change for existing `.env` files — only the *consumer* changes, from a child
+   process's `env` object to a plain in-process config object passed to `llm.ts`):
+   - `FASTCONTEXT_API_KEY` → `RunFastContextAgentOptions.llm.apiKey`
+   - `FASTCONTEXT_ENDPOINT` → `RunFastContextAgentOptions.llm.baseUrl`
+   - `FASTCONTEXT_MODEL` → `RunFastContextAgentOptions.llm.model`
 
    **Environment Variable Mapping** (naming convention unchanged from the original design, to
    avoid a breaking change for existing `.env` files — only the *consumer* changes, from a child
@@ -770,44 +777,47 @@ FASTCONTEXT_MODEL=fastcontext-model-name
 Loaded using only Node.js built-in modules (no external dependencies like `dotenv`):
 
 ```typescript
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import { readFileSync, existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 
 function loadEnvFile(): void {
-  const possiblePaths = [
-    path.join(process.cwd(), '.env'),
-    path.join(__dirname, '..', '.env'),
-    path.join(__dirname, '.env'),
+  const searchPaths = [
+    resolve(process.cwd(), '.env'),
+    resolve(dirname(import.meta.url), '..', '..', '.env'),
+    resolve(dirname(import.meta.url), '..', '..', 'node_modules', '.env'),
   ];
 
-  for (const envPath of possiblePaths) {
-    if (fs.existsSync(envPath)) {
-      const content = fs.readFileSync(envPath, 'utf-8');
-      const lines = content.split('\n');
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith('#')) continue;
-
-        const eqIndex = trimmed.indexOf('=');
-        if (eqIndex === -1) continue;
-
-        const key = trimmed.substring(0, eqIndex).trim();
-        let value = trimmed.substring(eqIndex + 1).trim();
-
-        if ((value.startsWith('"') && value.endsWith('"')) ||
-            (value.startsWith("'") && value.endsWith("'"))) {
-          value = value.slice(1, -1);
+  for (const path of searchPaths) {
+    if (existsSync(path)) {
+      try {
+        const content = readFileSync(path, 'utf-8');
+        const lines = content.split(/\r?\n/);
+        
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith('#')) continue;
+          
+          const eqIndex = trimmed.indexOf('=');
+          if (eqIndex > 0) {
+            const key = trimmed.substring(0, eqIndex).trim();
+            let value = trimmed.substring(eqIndex + 1).trim();
+            
+            if ((value.startsWith('"') && value.endsWith('"')) ||
+                (value.startsWith("'") && value.endsWith("'"))) {
+              value = value.slice(1, -1);
+            }
+            
+            process.env[key] = value;
+          }
         }
-
-        process.env[key] = value;
+      } catch (e) {
+        // Silently fail if .env file can't be read
       }
-      return;
     }
   }
 }
 
-// Load at module initialization
+// Load environment variables at module initialization
 loadEnvFile();
 ```
 

@@ -26,7 +26,7 @@ Configure the fastcontext API credentials using one of these methods:
 
 **Method 1: .env file (recommended)**
 
-Create a `.env` file in your project root with:
+Create a `.env` file in one of the following locations (loaded automatically at module initialization):
 
 ```env
 # API key for fastcontext authentication
@@ -48,9 +48,15 @@ export FASTCONTEXT_MODEL=fastcontext-model-name
 ```
 
 The skill automatically loads `.env` files from the following locations (in order):
-1. Current working directory (`./.env`)
-2. Package directory (`./extensions/../.env`)
-3. Extension directory (`./extensions/.env`)
+1. Current working directory (`process.cwd()/.env`)
+2. Package directory (resolved from `import.meta.url`, typically project root level)
+3. Node modules shared environment (`node_modules/.env`)
+
+**Features:**
+- Only built-in Node.js modules used (no external dependencies like `dotenv`)
+- Supports `KEY=VALUE` format with optional quotes (`"value"` or `'value'`)
+- Lines starting with `#` are treated as comments
+- Failed file reads are silently ignored (does not break execution)
 
 No additional setup required otherwise. The skill is automatically loaded with the pi-fc-search package.
 

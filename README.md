@@ -50,7 +50,12 @@ You can configure environment variables in two ways:
 
 #### Option A: Using .env file (recommended)
 
-Create a `.env` file in your project directory or package directory. You can start from the provided `.env.example` template:
+Create a `.env` file in one of the following locations (loaded automatically at module initialization):
+1. Current working directory (`./`) 
+2. Package directory (`./extensions/..`) - project root level
+3. Node modules directory (`./extensions/../node_modules`) - shared environment
+
+You can start from the provided `.env.example` template:
 
 ```bash
 cp .env.example .env
@@ -138,10 +143,16 @@ The extension reads the following environment variables from `.env` file or shel
 
 *Optional when using fastcontext defaults. Set these variables to override the default configuration.
 
-The extension automatically loads the `.env` file from the following locations (in order):
-1. Current working directory (`./.env`)
-2. Package directory (`./extensions/../.env`)
-3. Extension directory (`./extensions/.env`)
+The extension automatically loads environment variables from `.env` files at module initialization time. The following locations are searched (in order):
+1. Current working directory (`process.cwd()/.env`)
+2. Package directory (resolved from `import.meta.url`, typically project root level)
+3. Node modules shared environment (`node_modules/.env`)
+
+**Features:**
+- Only built-in Node.js modules used (no external dependencies like `dotenv`)
+- Supports `KEY=VALUE` format with optional quotes (`"value"` or `'value'`)
+- Lines starting with `#` are treated as comments
+- Failed file reads are silently ignored (does not break execution)
 
 ### Error Handling
 
