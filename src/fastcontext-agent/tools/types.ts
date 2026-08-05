@@ -50,9 +50,11 @@ export interface MessageWithToolCalls {
  */
 export interface FunctionCall {
   id: string;
-  name: string;
-  arguments: string; // JSON string
-  type?: string;
+  type: "function";
+  function: {
+    name: string;
+    arguments: string; // JSON string
+  };
 }
 
 /**
@@ -118,28 +120,28 @@ export class ToolSet {
   }
 
   private async executeSingleCall(call: FunctionCall): Promise<ToolResult> {
-    const tool = this.toolDict[call.name];
+    const tool = this.toolDict[call.function.name];
     if (!tool) {
       return {
         toolCallId: call.id,
-        output: `Tool \`${call.name}\` not found.`,
+        output: `Tool \`${call.function.name}\` not found.`,
         failed: true
       };
     }
 
     // Validate JSON parameters
     try {
-      JSON.parse(call.arguments || "{}");
+      JSON.parse(call.function.arguments || "{}");
     } catch {
       return {
         toolCallId: call.id,
-        output: `Tool \`${call.name}\` arguments are invalid.`,
+        output: `Tool \`${call.function.name}\` arguments are invalid.`,
         failed: true
       };
     }
 
     try {
-      const output = await tool.call(call.arguments, { cwd: this.workDir });
+      const output = await tool.call(call.function.arguments, { cwd: this.workDir });
       return {
         toolCallId: call.id,
         output,

@@ -67,9 +67,11 @@ export interface Message {
 
 export interface FunctionCall {
   id: string;
-  name: string;
-  arguments: string;
-  type?: string;
+  type: "function";
+  function: {
+    name: string;
+    arguments: string;
+  };
 }
 
 interface ChatCompletionPayload {
@@ -175,16 +177,17 @@ export class LLMClient {
       // Synthesize tool-call ids when missing (mlx-lm and other server compatibility fix)
       const functionCalls: FunctionCall[] = tool_calls_data.map((tc: any) => ({
         id: tc.id || this.synthesizeToolCallId(),
-        name: tc.function.name,
-        arguments: tc.function.arguments,
-        type: "function"
+        type: "function",
+        function: {
+          name: tc.function.name,
+          arguments: tc.function.arguments,
+        },
       }));
 
       return {
         role: choice.message.role,
         content: content,
         tool_calls: functionCalls,
-        tool_call_id: functionCalls[0].id
       };
     }
 

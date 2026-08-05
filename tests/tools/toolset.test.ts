@@ -61,10 +61,13 @@ describe("ToolSet", () => {
         content: null,
         tool_calls: [{
           id: "call_123",
-          name: "Read",
-          arguments: JSON.stringify({
-            path: join(TEST_FIXTURES_DIR, "test.ts")
-          })
+          type: "function",
+          function: {
+            name: "Read",
+            arguments: JSON.stringify({
+              path: join(TEST_FIXTURES_DIR, "test.ts")
+            })
+          }
         }]
       };
 
@@ -80,8 +83,11 @@ describe("ToolSet", () => {
         content: null,
         tool_calls: [{
           id: "call_123",
-          name: "NonExistentTool",
-          arguments: "{}"
+          type: "function",
+          function: {
+            name: "NonExistentTool",
+            arguments: "{}"
+          }
         }]
       };
 
@@ -97,8 +103,11 @@ describe("ToolSet", () => {
         content: null,
         tool_calls: [{
           id: "call_123",
-          name: "Read",
-          arguments: "not valid json {{{"
+          type: "function",
+          function: {
+            name: "Read",
+            arguments: "not valid json {{{"
+          }
         }]
       };
 
