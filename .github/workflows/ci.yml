@@ -8,23 +8,19 @@ on:
 
 jobs:
   test:
-    name: Test on ${{ matrix.os }} (${{ matrix.arch || 'x64' }})
+    name: Test on ${{ matrix.os }} (native arch)
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
-            arch: x64
           - os: macos-latest
-            arch: x64
           - os: windows-latest
-            arch: x64
           # arm64 runners are not available for all platforms on GitHub Actions
           # SPEC §7.5: "run on both x64 and arm64 runners if available"
           # Uncomment the following when arm64 runners become available:
           # - os: ubuntu-24.04-arm64
-          #   arch: arm64
     env:
       NODE_VERSION: '20'
 
@@ -58,6 +54,34 @@ jobs:
           echo "Node version: $(node -v)"
           echo "==============================="
 
+      - name: Verify architecture and ripgrep binary
+        shell: bash
+        run: |
+          echo "=== Architecture Verification ==="
+          echo "Node.js Architecture: $(node -e 'console.log(process.arch)')"
+          echo "Platform: $(node -e 'console.log(process.platform)')"
+          
+          # Install dependencies to get ripgrep
+          npm ci --silent
+          
+          # Get ripgrep path
+          RG_PATH=$(node -e "const {rgPath} = require('@vscode/ripgrep'); console.log(rgPath)")
+          echo "Ripgrep binary path: $RG_PATH"
+          
+          # Verify binary exists and is executable
+          if [[ -z "$RG_PATH" ]]; then
+            echo "ERROR: rgPath not provided by @vscode/ripgrep"
+            exit 1
+          fi
+          
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            $RG_PATH --version
+          else
+            "$RG_PATH" --version
+          fi
+          
+          echo "=== Verification Complete ==="
+
       - name: Install dependencies
         run: npm ci
 
@@ -77,24 +101,20 @@ jobs:
         shell: bash
         run: |
           # Verify @vscode/ripgrep provides rg binary
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            rg_path=$(node -e "const {rgPath} = require('@vscode/ripgrep'); console.log(rgPath)")
-          else
-            rg_path=$(node -e "const {rgPath} = require('@vscode/ripgrep'); console.log(rgPath)")
-          fi
+          RG_PATH=$(node -e "const {rgPath} = require('@vscode/ripgrep'); console.log(rgPath)")
           
-          if [[ -z "$rg_path" ]]; then
+          if [[ -z "$RG_PATH" ]]; then
             echo "ERROR: rgPath not provided by @vscode/ripgrep"
             exit 1
           fi
           
-          echo "✓ Ripgrep binary found at: $rg_path"
+          echo "✓ Ripgrep binary found at: $RG_PATH"
           
           # Test that the binary is executable
           if [[ "$RUNNER_OS" == "Windows" ]]; then
-            $rg_path --version
+            $RG_PATH --version
           else
-            "$rg_path" --version
+            "$RG_PATH" --version
           fi
 
       - name: Verify no Python dependency
