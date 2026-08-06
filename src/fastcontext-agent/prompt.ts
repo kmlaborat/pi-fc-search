@@ -14,7 +14,10 @@ export function loadSystemPrompt(workDir: string): string {
   const __dirname = dirname(fileURLToPath(import.meta.url));
   const systemMdPath = pathResolve(__dirname, "system.md");
   
-  const template = readFileSync(systemMdPath, "utf-8").trim();
+  // Load and normalize line endings to LF (prevents CRLF issues in LLM requests)
+  const template = readFileSync(systemMdPath, "utf-8")
+    .replace(/\r\n/g, "\n")
+    .trim();
 
   // Collect substitution variables
   const osKind = process.platform; // "win32", "darwin", "linux" etc.

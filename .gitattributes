@@ -1,0 +1,2 @@
+# Force LF line endings for all text/markdown files (prevents CRLF on Windows)
+*.md text eol=lf
