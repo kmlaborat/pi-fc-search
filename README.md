@@ -143,6 +143,18 @@ The extension reads the following environment variables from `.env` file or shel
 
 *Optional when using fastcontext defaults. Set these variables to override the default configuration.
 
+### Model Selection Recommendation
+
+**SFT models are recommended** for `FASTCONTEXT_MODEL`. Based on comparative verification:
+
+- **Recommended**: SFT models (e.g., `FastContext-1.0-4B-SFT`) - These models can self-correct their exploration strategy and return accurate answers based on actually read file contents.
+- **Not Recommended**: RL models tend to persistently retry non-existent paths up to `maxTurns` iterations, often returning fabricated `<final_answer>` content about files that were never actually accessed.
+
+Example recommended configuration:
+```
+FASTCONTEXT_MODEL="FastContext-1.0-4B-SFT"
+```
+
 The extension automatically loads environment variables from `.env` files at module initialization time. The following locations are searched (in order):
 1. Current working directory (`process.cwd()/.env`)
 2. Package directory (resolved from `import.meta.url`, typically project root level)

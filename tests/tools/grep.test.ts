@@ -151,4 +151,20 @@ describe("GrepTool", () => {
 
     expect(result).toContain("Permission error");
   });
+
+  test("should add helpful hint for malformed regex patterns", async () => {
+    // Use a pattern with a stray closing parenthesis that will cause ripgrep to return a regex parse error
+    const result = await grepTool.call(
+      JSON.stringify({
+        pattern: "(?<=invalid)(?=pattern))",  // trailing ")" causes "regex parse error"
+        path: join(TEST_FIXTURES_DIR, "grep_target.ts"),
+        output_mode: "content"
+      }),
+      { cwd: TEST_FIXTURES_DIR }
+    );
+
+    // Should contain the regex error and our helpful hint
+    expect(result).toContain("regex parse error");
+    expect(result).toContain("[Hint] The regex pattern may be malformed");
+  });
 });

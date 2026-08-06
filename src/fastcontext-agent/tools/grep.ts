@@ -267,7 +267,14 @@ export class GrepTool implements Tool {
           // ripgrep exits with 1 when no matches found, which is not an error for us
           resolve(stdout);
         } else {
-          reject(new Error(stderr || `Ripgrep exited with code ${code}`));
+          let errorMessage = stderr || `Ripgrep exited with code ${code}`;
+          
+          // Add helpful hint for regex parse errors to help the model adjust its strategy
+          if (errorMessage.includes("regex parse error")) {
+            errorMessage += `\n\n[Hint] The regex pattern may be malformed. Try a simpler pattern without complex grouping or anchors. For example, use "interface" instead of "\\b(\\w+?)\\s+Interface\\{"`;
+          }
+          
+          reject(new Error(errorMessage));
         }
       });
 
