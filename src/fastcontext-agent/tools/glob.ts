@@ -6,7 +6,7 @@
 import { existsSync, statSync } from "fs";
 import { resolve } from "path";
 import { spawn } from "child_process";
-import { isWithinCwd } from "../utils.js";
+import { isWithinCwd, resolveDockerMountPath } from "../utils.js";
 import type { Tool, CallContext, ToolResult } from "./types.js";
 import { getRgPath } from "./rg.js";
 
@@ -60,23 +60,38 @@ export class GlobTool implements Tool {
       const directory = parsed.directory || ctx.cwd;
       const pattern = parsed.pattern;
 
-      // Validate directory
-      if (!existsSync(directory)) {
-        return `The directory \`${directory}\` does not exist.`;
+      // Resolve directory with Docker-mount style correction for FastContext model outputs
+      let resolvedDirectory: string;
+      let pathCorrection: string | undefined;
+
+      const dockerResolution = resolveDockerMountPath(directory, ctx.cwd);
+      if (dockerResolution) {
+        resolvedDirectory = dockerResolution.resolved;
+        pathCorrection = dockerResolution.correction;
+      } else {
+        // Fall back to standard resolution
+        resolvedDirectory = resolve(directory);
       }
 
-      const stat = statSync(directory);
+      // Validate directory
+      if (!existsSync(resolvedDirectory)) {
+        return `The directory \`${resolvedDirectory}\` does not exist.`;
+      }
+
+      const stat = statSync(resolvedDirectory);
       if (!stat.isDirectory()) {
-        return `The directory \`${directory}\` is not a directory.`;
+        return `The directory \`${resolvedDirectory}\` is not a directory.`;
       }
 
       // Check containment within working directory (SPEC §10)
-      if (!isWithinCwd(resolve(directory), ctx.cwd)) {
-        return `Permission error: \`${directory}\` is not within the working directory \`${ctx.cwd}\`.`;
+      if (!isWithinCwd(resolvedDirectory, ctx.cwd)) {
+        return `Permission error: \`${resolvedDirectory}\` is not within the working directory \`${ctx.cwd}\`.`;
       }
 
+      const correctionNote = pathCorrection ? `[${pathCorrection}]\n` : "";
+
       // Run ripgrep with timeout
-      const output = await this.runRipgrepSearch(directory, pattern, ctx);
+      const output = await this.runRipgrepSearch(resolvedDirectory, pattern, ctx);
 
       if (!output || output.trim() === "") {
         return "No files found";
@@ -88,10 +103,10 @@ export class GlobTool implements Tool {
       const limit = 100;
       if (matchedFiles.length > limit) {
         const truncated = matchedFiles.slice(0, limit);
-        return truncated.join("\n") + `\nResults are truncated: showing first ${limit} results. Consider using a more specific path or pattern.`;
+        return `${correctionNote}${truncated.join("\n") + `\nResults are truncated: showing first ${limit} results. Consider using a more specific path or pattern.`}`;
       }
 
-      return output.trim();
+      return `${correctionNote}${output.trim()}`;
     } catch (error) {
       if (error instanceof Error && error.message.includes("timed out")) {
         return `Tool \`Glob\` timed out after ${RG_TIMEOUT}s.`;

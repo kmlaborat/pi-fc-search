@@ -5,7 +5,7 @@
 
 import { resolve } from "path";
 import { spawn } from "child_process";
-import { isWithinCwd } from "../utils.js";
+import { isWithinCwd, resolveDockerMountPath } from "../utils.js";
 import type { Tool, CallContext, ToolResult } from "./types.js";
 import { getRgPath } from "./rg.js";
 
@@ -144,12 +144,28 @@ export class GrepTool implements Tool {
         multiline: parsed.multiline || false
       };
 
-      // Validate path containment (SPEC §10)
-      if (!isWithinCwd(resolve(rgArgs.path!), ctx.cwd)) {
-        return `Permission error: \`${rgArgs.path}\` is not within the working directory \`${ctx.cwd}\`.`;
+      // Resolve path with Docker-mount style correction for FastContext model outputs
+      let resolvedPath: string;
+      let pathCorrection: string | undefined;
+
+      const dockerResolution = resolveDockerMountPath(rgArgs.path || ctx.cwd, ctx.cwd);
+      if (dockerResolution) {
+        resolvedPath = dockerResolution.resolved;
+        pathCorrection = dockerResolution.correction;
+      } else {
+        // Fall back to standard resolution
+        resolvedPath = resolve(rgArgs.path!);
       }
 
-      // Build and execute ripgrep command
+      // Validate path containment (SPEC §10) - after correction
+      if (!isWithinCwd(resolvedPath, ctx.cwd)) {
+        return `Permission error: \`${resolvedPath}\` is not within the working directory \`${ctx.cwd}\`.`;
+      }
+
+      const correctionNote = pathCorrection ? `[${pathCorrection}]\n` : "";
+
+      // Build and execute ripgrep command (use corrected path)
+      rgArgs.path = resolvedPath;
       const output = await this.runRipgrepCommand(rgArgs, ctx);
 
       if (!output || output.trim() === "") {
@@ -165,10 +181,10 @@ export class GrepTool implements Tool {
       const lines = output.split("\n");
       if (lines.length > limit) {
         const truncatedLines = lines.slice(0, limit);
-        return truncatedLines.join("\n") + `\nResults truncated to first ${limit} lines`;
+        return `${correctionNote}${truncatedLines.join("\n") + `\nResults truncated to first ${limit} lines`}`;
       }
 
-      return output.trim();
+      return `${correctionNote}${output.trim()}`;
     } catch (error) {
       return error instanceof Error ? error.message : "Unknown error";
     }

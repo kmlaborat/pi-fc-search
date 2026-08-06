@@ -5,7 +5,7 @@
 
 import { readFileSync, existsSync } from "fs";
 import { join, resolve } from "path";
-import { isWithinCwd } from "../utils.js";
+import { isWithinCwd, resolveDockerMountPath } from "../utils.js";
 import type { Tool, CallContext, ToolResult } from "./types.js";
 
 export const MAX_LINE = 2000;
@@ -73,9 +73,19 @@ export class ReadTool implements Tool {
         return "Read Tool: file path is required.";
       }
 
-      // Resolve and validate path
-      const resolvedPath = resolve(filePath);
+      // Resolve path with Docker-mount style correction for FastContext model outputs
       const absoluteCwd = ctx.cwd;
+      let resolvedPath: string;
+      let pathCorrection: string | undefined;
+
+      const dockerResolution = resolveDockerMountPath(filePath, absoluteCwd);
+      if (dockerResolution) {
+        resolvedPath = dockerResolution.resolved;
+        pathCorrection = dockerResolution.correction;
+      } else {
+        // Fall back to standard resolution
+        resolvedPath = resolve(filePath);
+      }
 
       if (!isWithinCwd(resolvedPath, absoluteCwd)) {
         return `Permission error: \`${resolvedPath}\` is not within the working directory \`${absoluteCwd}\`.`;
@@ -84,6 +94,9 @@ export class ReadTool implements Tool {
       if (!existsSync(resolvedPath)) {
         return `Read Tool: file ${filePath} does not exist.`;
       }
+
+      // Prepend path correction note if applicable
+      const correctionNote = pathCorrection ? `[${pathCorrection}]\n` : "";
 
       // Read file
       const content = readFileSync(resolvedPath, "utf-8");
@@ -133,7 +146,7 @@ export class ReadTool implements Tool {
       }
 
       const joinedContent = outputLines.join("\n");
-      return `\`\`\`${resolvedPath}:${startLine}-${endLine}\n${joinedContent}\n\`\`\``;
+      return `${correctionNote}\`\`\`${resolvedPath}:${startLine}-${endLine}\n${joinedContent}\n\`\`\``;
     } catch (error) {
       return `Read Tool error: ${error instanceof Error ? error.message : "Unknown error"}`;
     }

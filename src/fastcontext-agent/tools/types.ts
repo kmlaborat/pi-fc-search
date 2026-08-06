@@ -77,6 +77,67 @@ export class ToolSet {
   }
 
   /**
+   * Execute normalized tool calls derived from raw message objects.
+   * 
+   * This is the primary call path — it accepts pre-normalized flat structs that are
+   * never written back to the API, breaking the round-trip transformation chain.
+   */
+  async callNormalized(normalizedToolCalls: {id: string; name: string; arguments: Record<string, any>}[]): Promise<ToolResult[]> {
+    const results: ToolResult[] = [];
+    
+    // Sequential execution with per-call timeout
+    for (const call of normalizedToolCalls) {
+      try {
+        const timeoutPromise = new Promise<ToolResult>((_, reject) => {
+          setTimeout(() => reject(new Error(`Tool timed out after ${MAX_TOOLRUN_TIMEOUT}s`)), 
+            MAX_TOOLRUN_TIMEOUT * 1000);
+        });
+
+        // Execute through normalized call path
+        const execPromise = this.executeNormalizedCall(call);
+
+        results.push(await Promise.race([execPromise, timeoutPromise]));
+      } catch (error) {
+        // Isolate errors - continue with remaining calls
+        results.push({
+          toolCallId: call.id,
+          output: error instanceof Error ? error.message : "Unknown error",
+          failed: true
+        });
+      }
+    }
+    
+    return results;
+  }
+
+  private async executeNormalizedCall(call: {id: string; name: string; arguments: Record<string, any>}, workDir: string): Promise<ToolResult> {
+    const tool = this.toolDict[call.name];
+    if (!tool) {
+      return {
+        toolCallId: call.id,
+        output: `Tool \\'${call.name}\' not found.`,
+        failed: true
+      };
+    }
+
+    try {
+      const args = JSON.stringify(call.arguments);
+      const output = await tool.call(args, { cwd: workDir });
+      return {
+        toolCallId: call.id,
+        output,
+        failed: false
+      };
+    } catch (error) {
+      return {
+        toolCallId: call.id,
+        output: error instanceof Error ? error.message : String(error),
+        failed: true
+      };
+    }
+  }
+
+  /**
    * Execute tool calls from message.
    * 
    * Sequential execution (matching original Python implementation behavior).

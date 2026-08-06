@@ -138,11 +138,12 @@ describe("GrepTool", () => {
     expect(result).toBe("No matches found");
   });
 
-  test("should enforce path containment", async () => {
+  test("should enforce path containment for paths outside cwd", async () => {
+    // Use a relative path that escapes through parent directories
     const result = await grepTool.call(
       JSON.stringify({
         pattern: "hello",
-        path: "/etc/passwd", // Try to escape cwd
+        path: "../../../../../../../../../etc/passwd",
         output_mode: "content"
       }),
       { cwd: TEST_FIXTURES_DIR }

@@ -599,6 +599,56 @@ still applies), `WORK_DIR` (the `cwd` passed in), `WORK_DIR_LS` (newline-joined
 
 ---
 
+### 10.4 Docker-mount absolute path resolution (FastContext model compatibility)
+
+FastContext models trained in SWE-bench-like environments with Docker mounts frequently produce
+tool-call path arguments that are not real filesystem paths but "relative to repo root" intents:
+
+```json
+// FastContext output pattern (not a real filesystem path):
+{"path": "/pi-fc-search/package.json", ...}
+```
+
+This is not an error — the model learned these patterns during training in `/repo-name/` mount
+environments. The implementation must attempt to resolve such paths by trying multiple candidate
+strategies, as follows.
+
+**Resolution function: `resolveDockerMountPath(originalPath, cwd)`**
+
+| Strategy | Description | Example |
+|---|---|---|
+| 1 | Direct resolution if already within cwd | `/workspace/...` stays as-is |
+| 2 | Strip leading `/`, treat as relative to cwd | `/package.json` → `./package.json` |
+| 3 | Strip `/\<cwd-basename\>/` prefix (mount style) | `/pi-fc-search/package.json` → `./package.json` |
+| 4 | Match and strip any leading component equal to cwd basename | Recursive scan of path components |
+
+**Return value:** `{ resolved: string, correction?: string }` on success, `null` if unresolvable.
+If a transformation was applied, include a correction note for tool output.
+
+**Example usage in tools (read.ts pattern):**
+```typescript
+const absoluteCwd = ctx.cwd;
+let resolvedPath: string;
+let pathCorrection: string | undefined;
+
+const dockerResolution = resolveDockerMountPath(filePath, absoluteCwd);
+if (dockerResolution) {
+  resolvedPath = dockerResolution.resolved;
+  pathCorrection = dockerResolution.correction;
+} else {
+  resolvedPath = resolve(filePath); // standard fallback
+}
+
+// isWithinCwd check applies AFTER correction to the final resolved path
+```
+
+This function must be called before `isWithinCwd` validation in Read, Glob, and Grep tools.
+When a correction succeeds, tools may prepend `[Path corrected from X to Y]` to their output,
+of which example is:
+```typescript
+correctionNote = pathCorrection ? `[${pathCorrection}]\n` : "";
+```
+
 ## 10. Dependencies (`package.json`)
 
 The `pi-fc-search` package has exactly **one** npm dependency:
@@ -644,7 +694,20 @@ call against such servers.
 
 ---
 
-## 11. Windows-Correct Path Containment (replaces Python's `Path.is_relative_to`)
+### 11. Tool-call round-trip invariant: raw message objects must not be transformed for history storage
+
+When storing LLM responses in conversation history:
+
+1. The **raw `message` object returned by the server** (including its nested `{id, function: {name, arguments}}` structure) is stored directly in the `messages` array without modification.
+2. A **normalized flat struct** ({id, name, arguments}) may be derived temporarily for tool execution but must not be written back into history or the next API request — this breaks the transformation chain that caused the "function field disappears" bug (see §10.4 for details).
+3. If a server returns `tool_call.id: null`, synthesize an id (`call_{uuid}`) on the raw object itself before storing, rather than creating a new transformed struct.
+
+This invariant is maintained by:
+- `llm.ts`: `extractRawMessage()` returns both the unmodified raw object and a derived normalized tool-call list
+- `context.ts`: stores raw objects directly; never derives FunctionCall structs from history
+- `agent.ts`: uses normalized tool calls only for temporary execution via `toolset.callNormalized()`
+
+## 12. Windows-Correct Path Containment (replaces Python's `Path.is_relative_to`)
 
 The original Python tools reject paths outside `cwd` using `Path(x).resolve().is_relative_to(Path(cwd).resolve())`.
 Do **not** port this with naive string prefix checks (`path.startsWith(cwd)`), which breaks on

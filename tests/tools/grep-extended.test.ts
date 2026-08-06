@@ -170,10 +170,11 @@ describe("GrepTool - Extended Tests", () => {
 
   describe("Permission error handling", () => {
     test("should return correct permission error for path outside cwd", async () => {
+      // Use relative path that escapes through parent directories
       const result = await grepTool.call(
         JSON.stringify({
           pattern: "test",
-          path: "/etc/passwd",
+          path: "../../../../../../../../etc/passwd",
           output_mode: "content"
         }),
         { cwd: TEST_FIXTURES_DIR }

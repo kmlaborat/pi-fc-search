@@ -53,13 +53,13 @@ describe("LLMClient - Tool call structure (OpenAI API format compliance)", () =>
 
     mockFetch.mockResolvedValue(createMockResponse(mockOpenAIResponse));
 
-    const message = await client.acall([{ role: "user", content: "test" }]);
+    const result = await client.acall([{ role: "user", content: "test" }]);
 
-    // Verify tool_calls structure matches OpenAI format
-    expect(message.tool_calls).toBeDefined();
-    expect(message.tool_calls?.length).toBe(1);
+    // Verify raw message preserves original structure (for history)
+    expect(result.raw.tool_calls).toBeDefined();
+    expect(result.raw.tool_calls?.length).toBe(1);
 
-    const toolCall = message.tool_calls![0];
+    const toolCall = result.raw.tool_calls[0];
     
     // Verify nested structure - this is the key assertion for the bug fix
     expect(toolCall.id).toBe("call_abc123");
@@ -68,8 +68,13 @@ describe("LLMClient - Tool call structure (OpenAI API format compliance)", () =>
     expect(toolCall.function.name).toBe("Grep");
     expect(toolCall.function.arguments).toContain("test");
 
+    // Verify normalized tool calls exist for execution
+    expect(result.normalizedToolCalls).toBeDefined();
+    expect(result.normalizedToolCalls.length).toBe(1);
+    expect(result.normalizedToolCalls[0].name).toBe("Grep");
+
     // Verify NO tool_call_id on assistant message (bug #3 fix)
-    expect((message as any).tool_call_id).toBeUndefined();
+    expect((result.raw as any).tool_call_id).toBeUndefined();
   });
 
   test("should handle mlx-lm format and synthesize missing tool call ids", async () => {
@@ -94,13 +99,17 @@ describe("LLMClient - Tool call structure (OpenAI API format compliance)", () =>
 
     mockFetch.mockResolvedValue(createMockResponse(mockMlxResponse));
 
-    const message = await client.acall([{ role: "user", content: "test" }]);
+    const result = await client.acall([{ role: "user", content: "test" }]);
 
-    // Verify synthesized id
-    expect(message.tool_calls).toBeDefined();
-    const toolCall = message.tool_calls![0];
+    // Verify synthesized id in raw object (for history)
+    expect(result.raw.tool_calls).toBeDefined();
+    const toolCall = result.raw.tool_calls[0];
     expect(toolCall.id).toMatch(/^call_/);
     expect(toolCall.function.name).toBe("Read");
+
+    // Also verify synthesized id in normalized struct (for execution)
+    expect(result.normalizedToolCalls.length).toBe(1);
+    expect(result.normalizedToolCalls[0].id).toMatch(/^call_/);
   });
 
   test("should flatten structure for internal use but maintain OpenAI format for requests", async () => {
@@ -125,21 +134,23 @@ describe("LLMClient - Tool call structure (OpenAI API format compliance)", () =>
     mockFetch.mockResolvedValue(createMockResponse(mockResponse));
 
     // First call - get assistant message with tool calls
-    const messages = await client.acall([{ role: "user", content: "test" }]);
+    const result = await client.acall([{ role: "user", content: "test" }]);
 
-    // Verify internal structure is correct for passing to request
-    expect(messages.tool_calls![0].function.name).toBe("Glob");
+    // Verify raw structure preserved for request (nested format)
+    expect(result.raw.tool_calls[0].function.name).toBe("Glob");
 
-    // When getMessages() serializes this, it should produce proper OpenAI format
-    const serialized = messages.tool_calls![0];
-    
-    // Structure that goes into API request should be:
-    // { id: "...", type: "function", function: { name: "...", arguments: "..." } }
-    expect(serialized).toHaveProperty("id");
-    expect(serialized).toHaveProperty("type");
-    expect(serialized).toHaveProperty("function");
-    expect(serialized.function).toHaveProperty("name");
-    expect(serialized.function).toHaveProperty("arguments");
+    // Verify normalized struct has flat format for execution
+    expect(result.normalizedToolCalls.length).toBe(1);
+    expect(result.normalizedToolCalls[0].name).toBe("Glob");
+    expect(result.normalizedToolCalls[0]).not.toHaveProperty("function"); // Flat, not nested
+
+    // Raw object preserves nested structure for next API request
+    const rawToolCall = result.raw.tool_calls[0];
+    expect(rawToolCall).toHaveProperty("id");
+    expect(rawToolCall).toHaveProperty("type");
+    expect(rawToolCall).toHaveProperty("function");
+    expect(rawToolCall.function).toHaveProperty("name");
+    expect(rawToolCall.function).toHaveProperty("arguments");
   });
 });
 

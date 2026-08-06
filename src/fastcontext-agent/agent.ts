@@ -4,8 +4,8 @@
  */
 
 import { randomUUID } from "crypto";
-import type { LLMClient, Message, FunctionCall as LlmFunctionCall } from "./llm.js";
-import { RequestyAPIError } from "./llm.js";
+import type { LLMClient, NormalizedToolCall } from "./llm.js";
+import { RequestyAPIError, normalizeToolCalls } from "./llm.js";
 import type { ToolSet, FunctionCall } from "./tools/types.js";
 import { Context } from "./context.js";
 import { loadSystemPrompt } from "./prompt.js";
@@ -85,29 +85,33 @@ export class Agent {
 
       // Call LLM to get next action
       try {
-        const stepMessage = await this.llm.acall(
+        const stepResult = await this.llm.acall(
           this.context.getMessages(),
           this.toolset.schemaList(),
           signal // Pass abort signal to LLM client for cancellation
         );
 
-        await this.context.add(stepMessage);
+        // Add raw message object directly to history (preserves server structure)
+        await this.context.add(stepResult.raw);
 
-        // If LLM requested tool calls, execute them
-        if (stepMessage.tool_calls && stepMessage.tool_calls.length > 0) {
-          const toolResults = await this.toolset.call(stepMessage as any);
-          
+        // If LLM requested tool calls, execute them using normalized struct
+        const toolCalls = stepResult.normalizedToolCalls;
+        
+        if (toolCalls && toolCalls.length > 0) {
+          const toolResults = await this.toolset.callNormalized(toolCalls as any);
+
           // Create messages for each tool result
-          const toolMessages: Message[] = toolResults.map(result => ({
-            role: "tool" as const,
+          const toolMessages: any[] = toolResults.map(result => ({
+            role: "tool",
             content: result.failed ? `[ERROR] ${result.output}` : result.output,
             tool_call_id: result.toolCallId
           }));
 
           await this.context.add(toolMessages);
         } else {
-          // LLM provided final answer
-          return citation ? getFinalAnswer(stepMessage.content || "") : (stepMessage.content || "");
+          // LLM provided final answer — extract from raw object's content field
+          const content = stepResult.raw.content || "";
+          return citation ? getFinalAnswer(content) : content;
         }
       } catch (error) {
         if (error instanceof RequestyAPIError) {
