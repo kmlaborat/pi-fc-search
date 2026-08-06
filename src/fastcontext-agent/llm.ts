@@ -8,49 +8,41 @@ import { readFileSync, existsSync } from "fs";
 import { dirname, resolve } from "path";
 
 /**
- * Load environment variables from .env file.
- * Searches in the following order:
- * 1. {process.cwd()}/.env
- * 2. {package-dir}/.env (directory of this module)
- * 3. {extensions-dir}/.env (extensions directory containing this package)
+ * Load environment variables from package .env file only.
  */
 function loadEnvFile(): void {
-  const searchPaths = [
-    resolve(process.cwd(), ".env"),
-    resolve(dirname(import.meta.url), "..", "..", ".env"),
-    resolve(dirname(import.meta.url), "..", "..", "node_modules", ".env"),
-  ];
+  const path = resolve(dirname(import.meta.url), "..", "..", ".env");
 
-  for (const path of searchPaths) {
-    if (existsSync(path)) {
-      try {
-        const content = readFileSync(path, "utf-8");
-        const lines = content.split(/\r?\n/);
+  if (!existsSync(path)) {
+    return;
+  }
+
+  try {
+    const content = readFileSync(path, "utf-8");
+    const lines = content.split(/\r?\n/);
+    
+    for (const line of lines) {
+      const trimmed = line.trim();
+      // Skip empty lines and comments
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      
+      // Parse KEY=VALUE format
+      const eqIndex = trimmed.indexOf("=");
+      if (eqIndex > 0) {
+        const key = trimmed.substring(0, eqIndex).trim();
+        let value = trimmed.substring(eqIndex + 1).trim();
         
-        for (const line of lines) {
-          const trimmed = line.trim();
-          // Skip empty lines and comments
-          if (!trimmed || trimmed.startsWith("#")) continue;
-          
-          // Parse KEY=VALUE format
-          const eqIndex = trimmed.indexOf("=");
-          if (eqIndex > 0) {
-            const key = trimmed.substring(0, eqIndex).trim();
-            let value = trimmed.substring(eqIndex + 1).trim();
-            
-            // Remove surrounding quotes if present
-            if ((value.startsWith('"') && value.endsWith('"')) || 
-                (value.startsWith("'") && value.endsWith("'"))) {
-              value = value.slice(1, -1);
-            }
-            
-            process.env[key] = value;
-          }
+        // Remove surrounding quotes if present
+        if ((value.startsWith('"') && value.endsWith('"')) || 
+            (value.startsWith("'") && value.endsWith("'"))) {
+          value = value.slice(1, -1);
         }
-      } catch (e) {
-        // Silently fail if .env file can't be read
+        
+        process.env[key] = value;
       }
     }
+  } catch (e) {
+    // Silently fail if .env file can't be read
   }
 }
 
