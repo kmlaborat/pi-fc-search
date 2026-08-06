@@ -133,4 +133,56 @@ describe("ToolSet", () => {
       expect(MAX_TOOLRUN_TIMEOUT).toBe(10);
     });
   });
+
+  describe("Normalized call execution (cwd propagation regression tests)", () => {
+    // Regression test for: all tools failed with "paths[0] must be string. Received undefined"
+    // because executeNormalizedCall was called without workDir argument
+
+    test("callNormalized should propagate cwd to tool execution context", async () => {
+      const results = await toolset.callNormalized([{
+        id: "call_normalized_1",
+        name: "Read",
+        arguments: {
+          path: join(TEST_FIXTURES_DIR, "test.ts")
+        }
+      }]);
+
+      // If cwd was undefined, this would fail with Node.js path error
+      expect(results.length).toBe(1);
+      expect(results[0].failed).toBe(false);
+      expect(results[0].toolCallId).toBe("call_normalized_1");
+      expect(results[0].output).toContain("test.ts");
+    });
+
+    test("callNormalized should use workDir as fallback when tool uses ctx.cwd", async () => {
+      const results = await toolset.callNormalized([{
+        id: "call_normalized_glob",
+        name: "Glob",
+        arguments: {
+          pattern: "*.ts"  // No directory specified - should use ctx.cwd (workDir)
+        }
+      }]);
+
+      // This would fail if cwd was undefined because Glob uses ctx.cwd when directory not provided
+      expect(results.length).toBe(1);
+      expect(results[0].failed).toBe(false);
+      expect(results[0].output).toContain("test.ts");
+    });
+
+    test("callNormalized should pass workDir to grep tool for path resolution", async () => {
+      const results = await toolset.callNormalized([{
+        id: "call_normalized_grep",
+        name: "Grep",
+        arguments: {
+          pattern: "export",
+          // No path specified - should use ctx.cwd (workDir)
+        }
+      }]);
+
+      expect(results.length).toBe(1);
+      expect(results[0].failed).toBe(false);
+      // Should find the export statement in test.ts
+      expect(results[0].output).toContain("export");
+    });
+  });
 });
