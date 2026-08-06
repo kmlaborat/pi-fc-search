@@ -45,9 +45,18 @@ export function resolveDockerMountPath(originalPath: string, cwd: string): { res
   // Strategy 2: Strip leading slash, treat as relative to cwd
   if (originalPath.startsWith("/")) {
     const stripped = originalPath.slice(1);
-    const strippedResolved = pathResolve(absCwd, stripped);
-    if (isWithinCwd(strippedResolved, absCwd)) {
-      return { resolved: strippedResolved, correction: `Path corrected from ${originalPath} to ${stripped}` };
+    
+    // If the first component matches cwd basename, skip to Strategy 3 to avoid duplication
+    // e.g., "/test/sample.js" with cwd ".../test" → strip gives "test/sample.js" → would create test/test/
+    const firstComponent = stripped.split("/")[0];
+    if (firstComponent && firstComponent.toLowerCase() === path.basename(absCwd).toLowerCase()) {
+      // Skip this strategy, Strategy 3 will handle it correctly
+    } else {
+      // Normal case: strip leading slash and resolve relative to cwd
+      const strippedResolved = pathResolve(absCwd, stripped);
+      if (isWithinCwd(strippedResolved, absCwd)) {
+        return { resolved: strippedResolved, correction: `Path corrected from ${originalPath} to ${stripped}` };
+      }
     }
   }
 

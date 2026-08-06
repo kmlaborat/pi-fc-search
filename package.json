@@ -28,6 +28,7 @@
     "@types/node": "^26.1.2",
     "@vitest/expect": "^4.1.10",
     "chai": "^6.2.2",
+    "tsx": "^4.23.9",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   }

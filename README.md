@@ -226,6 +226,18 @@ This extension complies with the following SPEC requirements:
 
 > **Verification**: Implementation has been verified against SPEC with 0 discrepancies found. All 67 acceptance tests pass.
 
+## Known Issues & TODO
+
+### Known Issues
+
+1. **Halted path exploration**: The model may hallucinate non-existent directory names from file names (e.g., `duet.json` → `duet-js/`) and repeat failed accesses for 10+ turns. 
+   - **Proposed mitigation**: Add hint with top-level directory listing after N consecutive failures on same path.
+
+### TODO
+
+- [ ] Implement path failure tracking and corrective hints in tool responses (see Known Issues #1)
+- [ ] Add integration test infrastructure for fc_search tool execution
+
 ## Acknowledgements
 
 This package ports the following upstream repository:

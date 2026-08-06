@@ -922,3 +922,24 @@ is no more risk of leaking unrelated `process.env` entries into a subprocess, si
    providers**: this is a straight port plus a runtime swap, not a feature expansion.
 8. **`fastcontext` Python binary management**: no longer applicable — there is no Python binary in
    this design to manage.
+
+---
+
+## 16. Known Issues & Technical Debt
+
+### KN-001: Halted Exploration on Hallucinated Paths
+The model may infer non-existent directory names from file names (e.g., `duet.json` → `duet-js/`) 
+and continue accessing them for extended turns despite IO errors.
+
+**Root Cause**: LLM exploration strategy issue (not agent infrastructure)
+
+**Proposed Mitigation**: Track consecutive failures per path and include corrective hints:
+```typescript
+// After N (>3) consecutive failures on same path:
+"[Suggestion] Directory/file not found. Available top-level items: [${topLevel.join(', ')}]. " +
+"Please try Glob tool instead."
+```
+
+### KN-002: Strategy 2 Duplicate Resolution (Fixed)
+Resolved: `/test/sample.js` with cwd `.../test` was incorrectly resolved to `test/test/sample.js` 
+instead of `test/sample.js`. Fix: Skip Strategy 2 when first path component matches cwd basename.
