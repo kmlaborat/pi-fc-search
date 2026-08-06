@@ -58,6 +58,11 @@ export class ReadTool implements Tool {
   }
 
   async call(params: string, ctx: CallContext): Promise<string> {
+    // Defensive check for cwd - prevents cryptic Node path errors
+    if (!ctx.cwd || typeof ctx.cwd !== "string") {
+      throw new Error("[FastContext] Internal error: cwd was not provided to Read tool execution");
+    }
+
     try {
       const parsed = JSON.parse(params) as {
         path: string;

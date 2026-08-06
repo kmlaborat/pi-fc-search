@@ -94,7 +94,7 @@ export class ToolSet {
         });
 
         // Execute through normalized call path
-        const execPromise = this.executeNormalizedCall(call);
+        const execPromise = this.executeNormalizedCall(call, this.workDir);
 
         results.push(await Promise.race([execPromise, timeoutPromise]));
       } catch (error) {
