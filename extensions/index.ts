@@ -56,42 +56,35 @@ const TIMEOUT_SECONDS = 120;
 
 function loadEnvFile(): void {
   try {
-    const possiblePaths = [
-      path.join(process.cwd(), '.env'),
-      path.join(__dirname, '..', '.env'),
-      path.join(__dirname, '.env'),
-    ];
-
-    for (const envPath of possiblePaths) {
-      if (fs.existsSync(envPath)) {
-        const content = fs.readFileSync(envPath, 'utf-8');
-        const lines = content.split('\n');
+    // Search for .env only in the package directory (project root level)
+    const envPath = path.join(__dirname, '..', '.env');
+    
+    if (fs.existsSync(envPath)) {
+      const content = fs.readFileSync(envPath, 'utf-8');
+      const lines = content.split('\n');
+      
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
         
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || trimmed.startsWith('#')) continue;
-          
-          const eqIndex = trimmed.indexOf('=');
-          if (eqIndex === -1) continue;
-          
-          const key = trimmed.substring(0, eqIndex).trim();
-          let value = trimmed.substring(eqIndex + 1).trim();
-          
-          // Remove surrounding quotes if present
-          if ((value.startsWith('"') && value.endsWith('"')) || 
-              (value.startsWith("'") && value.endsWith("'"))) {
-            value = value.slice(1, -1);
-          }
-          
-          process.env[key] = value;
+        const eqIndex = trimmed.indexOf('=');
+        if (eqIndex === -1) continue;
+        
+        const key = trimmed.substring(0, eqIndex).trim();
+        let value = trimmed.substring(eqIndex + 1).trim();
+        
+        // Remove surrounding quotes if present
+        if ((value.startsWith('"') && value.endsWith('"')) || 
+            (value.startsWith("'") && value.endsWith("'"))) {
+          value = value.slice(1, -1);
         }
         
-        return; // Found and loaded .env file
+        process.env[key] = value;
       }
     }
   } catch (error) {
     // Log error for debugging but continue - don't crash extension on .env issues
-    console.error(`[pi-fc-search] Warning: Failed to load .env files. API key and configuration may not be available.`);
+    console.error(`[pi-fc-search] Warning: Failed to load .env file. API key and configuration may not be available.`);
   }
 }
 

@@ -164,10 +164,9 @@ FASTCONTEXT_MODEL="InternScience/Agents-A1-4B"
 
 > **Note**: `InternScience/Agents-A1-4B` is not an officially supported model of the `fastcontext` project. It has been verified to work as a general-purpose tool calling-compatible model. The model selection above reflects our independent verification, not endorsement by the upstream fastcontext maintainers.
 
-The extension automatically loads environment variables from `.env` files at module initialization time. The following locations are searched (in order):
-1. Current working directory (`process.cwd()/.env`)
-2. Package directory (resolved from `import.meta.url`, typically project root level)
-3. Node modules shared environment (`node_modules/.env`)
+The extension automatically loads environment variables from the `.env` file in the package directory (`pi-fc-search/.env`) at module initialization time.
+
+For local installations (`./path/pi-fc-search`), this is typically the project root level where the package was installed.
 
 **Features:**
 - Only built-in Node.js modules used (no external dependencies like `dotenv`)

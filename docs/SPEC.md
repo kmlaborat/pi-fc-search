@@ -152,10 +152,8 @@ implementation detail and must not alter what the main agent sends:
    - Shell environment variables (exported before running `pi`)
    - `.env` file (automatically loaded at module initialization)
 
-   The extension automatically loads `.env` from the following locations (in order of precedence):
-   1. Current working directory (`process.cwd()/.env`)
-   2. Package directory (resolved from `import.meta.url`, typically project root level)
-   3. Node modules shared environment (`node_modules/.env`)
+   The extension automatically loads `.env` from the package directory at module initialization time:
+   - Package directory (`pi-fc-search/.env`) — typically project root level where the package is installed
 
    **Environment Variable Mapping** (naming convention unchanged from the original design, to
    avoid a breaking change for existing `.env` files — only the *consumer* changes, from a child
@@ -844,13 +842,14 @@ import { readFileSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
 function loadEnvFile(): void {
-  const searchPaths = [
-    resolve(process.cwd(), '.env'),
-    resolve(dirname(import.meta.url), '..', '..', '.env'),
-    resolve(dirname(import.meta.url), '..', '..', 'node_modules', '.env'),
-  ];
+  // Package directory only — matches both local and git installations
+  const envPath = resolve(dirname(import.meta.url), '..', '..', '.env');
 
-  for (const path of searchPaths) {
+  if (existsSync(envPath)) {
+    const content = readFileSync(envPath, 'utf-8');
+    const lines = content.split(/\r?\n/);
+    
+    for (const line of lines) {
     if (existsSync(path)) {
       try {
         const content = readFileSync(path, 'utf-8');

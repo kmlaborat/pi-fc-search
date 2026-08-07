@@ -49,10 +49,7 @@ export FASTCONTEXT_ENDPOINT=https://your-fastcontext-endpoint.com
 export FASTCONTEXT_MODEL=InternScience/Agents-A1-4B
 ```
 
-The skill automatically loads `.env` files from the following locations (in order):
-1. Current working directory (`process.cwd()/.env`)
-2. Package directory (resolved from `import.meta.url`, typically project root level)
-3. Node modules shared environment (`node_modules/.env`)
+The skill automatically loads `.env` from the package directory (`pi-fc-search/.env`) at module initialization time.
 
 **Features:**
 - Only built-in Node.js modules used (no external dependencies like `dotenv`)
