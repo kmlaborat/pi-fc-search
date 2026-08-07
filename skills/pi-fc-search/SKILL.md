@@ -35,16 +35,18 @@ FASTCONTEXT_API_KEY=your-api-key-here
 # Base URL of the fastcontext endpoint
 FASTCONTEXT_ENDPOINT=https://your-fastcontext-endpoint.com
 
-# Model name to use for fastcontext search
-FASTCONTEXT_MODEL=fastcontext-model-name
+# Model name to use for fastcontext search (see README §Model Selection)
+FASTCONTEXT_MODEL=InternScience/Agents-A1-4B
 ```
+
+For model selection details and sampling parameters, see README **§Model Selection Recommendation**.
 
 **Method 2: Shell environment variables**
 
 ```bash
 export FASTCONTEXT_API_KEY=your-api-key-here
 export FASTCONTEXT_ENDPOINT=https://your-fastcontext-endpoint.com
-export FASTCONTEXT_MODEL=fastcontext-model-name
+export FASTCONTEXT_MODEL=InternScience/Agents-A1-4B
 ```
 
 The skill automatically loads `.env` files from the following locations (in order):

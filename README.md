@@ -145,15 +145,24 @@ The extension reads the following environment variables from `.env` file or shel
 
 ### Model Selection Recommendation
 
-**SFT models are recommended** for `FASTCONTEXT_MODEL`. Based on comparative verification:
+Based on comparative verification across multiple query types, the following priority order is recommended:
 
-- **Recommended**: SFT models (e.g., `FastContext-1.0-4B-SFT`) - These models can self-correct their exploration strategy and return accurate answers based on actually read file contents.
-- **Not Recommended**: RL models tend to persistently retry non-existent paths up to `maxTurns` iterations, often returning fabricated `<final_answer>` content about files that were never actually accessed.
+1. **Most Recommended**: `InternScience/Agents-A1-4B` (or equivalent general-purpose small model with tool calling support). Not a FastContext-dedicated model, but verified to outperform in honesty of exploration (does not fabricate results for non-existent files) and accuracy across all tested queries.
+2. **Second Choice**: FastContext-SFT models (e.g., `FastContext-1.0-4B-SFT`). Can self-correct their exploration strategy and return accurate answers based on actually read file contents, though occasional exploration meandering may occur.
+3. **Not Recommended**: FastContext-RL models show strong tendency to persistently retry non-existent paths up to `maxTurns` iterations, often returning fabricated `<final_answer>` content about files that were never actually accessed.
 
 Example recommended configuration:
 ```
-FASTCONTEXT_MODEL="FastContext-1.0-4B-SFT"
+FASTCONTEXT_MODEL="InternScience/Agents-A1-4B"
 ```
+
+#### Sampling Parameter Notes for Qwen3.5-based Models
+
+- **CoT (Chain of Thought)**: By default, Qwen3.5-based models have CoT enabled (`enable_thinking: true`). When using these models for repository search, set `enable_thinking: false` in your server configuration or API call parameters. Otherwise, the model will consume significant tokens on `<think>` blocks, drastically reducing response speed without meaningful benefit to search quality.
+- **Presence Penalty**: Setting `presence_penalty` around 1.5 may help suppress the model's tendency to persistently retry the same (incorrect) path or strategy.
+- **Server Configuration**: How to configure `chat_template_kwargs` and sampling parameters varies depending on your server runtime (llama.cpp, vLLM, SGLang, etc.). Refer to your specific server's documentation for the correct configuration method.
+
+> **Note**: `InternScience/Agents-A1-4B` is not an officially supported model of the `fastcontext` project. It has been verified to work as a general-purpose tool calling-compatible model. The model selection above reflects our independent verification, not endorsement by the upstream fastcontext maintainers.
 
 The extension automatically loads environment variables from `.env` files at module initialization time. The following locations are searched (in order):
 1. Current working directory (`process.cwd()/.env`)
