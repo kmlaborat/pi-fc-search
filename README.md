@@ -50,10 +50,7 @@ You can configure environment variables in two ways:
 
 #### Option A: Using .env file (recommended)
 
-Create a `.env` file in one of the following locations (loaded automatically at module initialization):
-1. Current working directory (`./`) 
-2. Package directory (`./extensions/..`) - project root level
-3. Node modules directory (`./extensions/../node_modules`) - shared environment
+Create a `.env` file in the package directory (`pi-fc-search/.env`), which is typically at project root level. It will be loaded automatically at module initialization.
 
 You can start from the provided `.env.example` template:
 
@@ -66,7 +63,7 @@ Example `.env` file:
 ```
 FASTCONTEXT_API_KEY="your-api-key"
 FASTCONTEXT_ENDPOINT="https://your-fastcontext-endpoint.com"
-FASTCONTEXT_MODEL="FastContext-RL"
+FASTCONTEXT_MODEL="InternScience/Agents-A1-4B"
 ```
 
 #### Option B: Using shell environment variables
