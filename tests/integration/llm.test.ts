@@ -3,7 +3,7 @@
  */
 
 import { describe, test, expect, vi, beforeEach } from 'vitest';
-import { LLMClient, Message, FunctionCall } from '../../src/fastcontext-agent/llm.js';
+import { LLMClient, Message, FunctionCall, normalizeToolCalls } from '../../src/fastcontext-agent/llm.js';
 
 // Mock fetch globally
 const mockFetch = vi.fn();
@@ -151,6 +151,33 @@ describe("LLMClient - Tool call structure (OpenAI API format compliance)", () =>
     expect(rawToolCall).toHaveProperty("function");
     expect(rawToolCall.function).toHaveProperty("name");
     expect(rawToolCall.function).toHaveProperty("arguments");
+  });
+});
+
+describe("normalizeToolCalls - argument formats (D-008, SPEC §18)", () => {
+  test("should parse JSON-string arguments (OpenAI standard format)", () => {
+    const out = normalizeToolCalls({
+      tool_calls: [{ id: "1", function: { name: "Read", arguments: '{"path":"a.ts"}' } }],
+    });
+    expect(out).toEqual([{ id: "1", name: "Read", arguments: { path: "a.ts" } }]);
+  });
+
+  test("should accept object-form arguments from OpenAI-compatible servers", () => {
+    const out = normalizeToolCalls({
+      tool_calls: [{ id: "2", function: { name: "Grep", arguments: { pattern: "foo", "-i": true } } }],
+    });
+    expect(out).toEqual([{ id: "2", name: "Grep", arguments: { pattern: "foo", "-i": true } }]);
+  });
+
+  test("should fall back to empty object for malformed string arguments", () => {
+    const out = normalizeToolCalls({
+      tool_calls: [{ id: "3", function: { name: "Read", arguments: "{not-json" } }],
+    });
+    expect(out).toEqual([{ id: "3", name: "Read", arguments: {} }]);
+  });
+
+  test("should return empty list when no tool calls present", () => {
+    expect(normalizeToolCalls({ role: "assistant", content: "hi" })).toEqual([]);
   });
 });
 

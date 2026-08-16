@@ -26,7 +26,7 @@ Configure the fastcontext API credentials using one of these methods:
 
 **Method 1: .env file (recommended)**
 
-Create a `.env` file in one of the following locations (loaded automatically at module initialization):
+Create a `.env` file in the package directory (`pi-fc-search/.env`, next to `package.json`). It is loaded automatically at module initialization (single location — see README §Environment Configuration):
 
 ```env
 # API key for fastcontext authentication

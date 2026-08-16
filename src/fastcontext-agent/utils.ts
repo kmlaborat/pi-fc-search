@@ -16,7 +16,18 @@ export function isWithinCwd(candidate: string, cwd: string): boolean {
   const resolvedCwd = pathResolve(cwd);
   const resolvedCandidate = pathResolve(cwd, candidate);
   const rel = path.relative(resolvedCwd, resolvedCandidate);
-  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+  // (D-009, SPEC §18): the `..` check must be segment-aware. The SPEC §12
+  // reference implementation (`rel.startsWith("..")`) also rejects legitimate
+  // entries whose *name* merely begins with dots, e.g. `..secret/file.ts`
+  // inside cwd (rel = "..secret/file.ts"). Check the actual ".." segment
+  // instead (both separator styles, since the check runs on all platforms).
+  return (
+    rel === "" ||
+    (rel !== ".." &&
+      !rel.startsWith("..\\") &&
+      !rel.startsWith("../") &&
+      !path.isAbsolute(rel))
+  );
 }
 
 /**

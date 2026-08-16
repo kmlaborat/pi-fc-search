@@ -75,8 +75,16 @@ export class Agent {
         return `No final answer after ${maxTurns} turns.`;
       }
 
-      // Inject "please provide final answer" at the last turn
-      if (nTurn === maxTurns + 1) {
+      // Inject "please provide final answer" at the last turn.
+      // (D-007, SPEC §18): that forced turn is also called WITHOUT tools, so the
+      // server cannot answer with another tool call. Upstream left tools enabled
+      // on the final turn; models that ignore the text injection would burn the
+      // last turn on tool execution and the agent exited with "No final answer"
+      // despite having the information. Removing the tools array structurally
+      // forces a text response; the mandated exit message is unchanged for the
+      // (rare) case where the model still fails to answer.
+      const isFinalTurn = nTurn === maxTurns + 1;
+      if (isFinalTurn) {
         await this.context.add({
           role: "user",
           content: "Max number of turns reached. Please provide the final answer based on the information you have gathered."
@@ -87,7 +95,7 @@ export class Agent {
       try {
         const stepResult = await this.llm.acall(
           this.context.getMessages(),
-          this.toolset.schemaList(),
+          isFinalTurn ? undefined : this.toolset.schemaList(),
           signal // Pass abort signal to LLM client for cancellation
         );
 

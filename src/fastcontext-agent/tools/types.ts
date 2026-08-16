@@ -88,15 +88,22 @@ export class ToolSet {
     for (const call of normalizedToolCalls) {
       try {
         // SPEC §8.4: timeout ToolResult message includes the tool name
+        let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
         const timeoutPromise = new Promise<ToolResult>((_, reject) => {
-          setTimeout(() => reject(new Error(`Tool \`${call.name}\` timed out after ${MAX_TOOLRUN_TIMEOUT}s.`)),
+          timeoutHandle = setTimeout(() => reject(new Error(`Tool \`${call.name}\` timed out after ${MAX_TOOLRUN_TIMEOUT}s.`)),
             MAX_TOOLRUN_TIMEOUT * 1000);
         });
 
         // Execute through normalized call path
         const execPromise = this.executeNormalizedCall(call, this.workDir);
 
-        results.push(await Promise.race([execPromise, timeoutPromise]));
+        try {
+          results.push(await Promise.race([execPromise, timeoutPromise]));
+        } finally {
+          // Clear the timer once the race settles — otherwise a 10s pending
+          // timer accumulates per tool call.
+          clearTimeout(timeoutHandle);
+        }
       } catch (error) {
         // Isolate errors - continue with remaining calls
         results.push({
@@ -158,15 +165,21 @@ export class ToolSet {
     for (const toolCall of message.tool_calls) {
       try {
         // Create timeout promise (SPEC §8.4: message includes the tool name)
+        let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
         const timeoutPromise = new Promise<ToolResult>((_, reject) => {
-          setTimeout(() => reject(new Error(`Tool \`${(toolCall as FunctionCall).function.name}\` timed out after ${MAX_TOOLRUN_TIMEOUT}s.`)),
+          timeoutHandle = setTimeout(() => reject(new Error(`Tool \`${(toolCall as FunctionCall).function.name}\` timed out after ${MAX_TOOLRUN_TIMEOUT}s.`)),
             MAX_TOOLRUN_TIMEOUT * 1000);
         });
         
         // Execute tool call
         const execPromise = this.executeSingleCall(toolCall as FunctionCall);
         
-        results.push(await Promise.race([execPromise, timeoutPromise]));
+        try {
+          results.push(await Promise.race([execPromise, timeoutPromise]));
+        } finally {
+          // Clear the timer once the race settles (see callNormalized above).
+          clearTimeout(timeoutHandle);
+        }
       } catch (error) {
         // Isolate errors - continue with remaining calls
         results.push({

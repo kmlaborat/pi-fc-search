@@ -50,13 +50,20 @@ export function normalizeToolCalls(rawMessage: any): NormalizedToolCall[] {
     const id = tc.id || `call_${randomUUID().slice(0, 32)}`; // Synthesize if missing (mlx-lm compat)
     const name = tc.function?.name || "";
     let argumentsObj: Record<string, any> = {};
-    
-    if (typeof tc.function?.arguments === "string") {
+
+    const rawArgs = tc.function?.arguments;
+    if (typeof rawArgs === "string") {
       try {
-        argumentsObj = JSON.parse(tc.function.arguments);
+        argumentsObj = JSON.parse(rawArgs);
       } catch {
         argumentsObj = {};
       }
+    } else if (rawArgs && typeof rawArgs === "object") {
+      // (D-008, SPEC §18): some OpenAI-compatible servers return tool-call
+      // arguments already parsed as a JSON object instead of a JSON string.
+      // Upstream only handled the string form, silently dropping such
+      // arguments to {}. Accept the object as-is.
+      argumentsObj = rawArgs;
     }
 
     return { id, name, arguments: argumentsObj };

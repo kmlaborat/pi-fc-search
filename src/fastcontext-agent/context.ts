@@ -55,7 +55,10 @@ export class Context {
     try {
       // One compact JSON object per line — strict JSONL so the trajectory
       // can be parsed line-by-line with standard tooling.
-      const lines = messages.map(msg => {
+      // Written from cleanMessages (not the original input) so the
+      // trajectory matches exactly what is kept in history and sent to the
+      // API — without server metadata (model/usage/reasoning_content).
+      const lines = cleanMessages.map(msg => {
         const obj: any = {};
         for (const [key, value] of Object.entries(msg)) {
           if (value !== null && value !== undefined) {

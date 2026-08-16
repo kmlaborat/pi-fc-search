@@ -15,7 +15,7 @@ const TEST_REPO_DIR = process.env.TEST_REPO_DIR ||
 const hasCredentials = !!process.env.FASTCONTEXT_API_KEY && !!process.env.FASTCONTEXT_ENDPOINT;
 
 describe("Real Server Debug Test", () => {
-  test.skip(!hasCredentials, "should complete search with file reading (previous failure case)", async () => {
+  test.skipIf(!hasCredentials)("should complete search with file reading (previous failure case)", async () => {
     const start = Date.now();
     console.log(`\n=== REAL SERVER TEST START (${new Date().toISOString()}) ===`);
     console.log(`API Endpoint: ${process.env.FASTCONTEXT_ENDPOINT}`);
@@ -56,7 +56,7 @@ describe("Real Server Debug Test", () => {
     }
   }, 60000); // 60 second timeout
 
-  test.skip(!hasCredentials, "should handle Docker-mount style path and complete successfully", async () => {
+  test.skipIf(!hasCredentials)("should handle Docker-mount style path and complete successfully", async () => {
     const start = Date.now();
     console.log(`\n=== PATH CORRECTION TEST START (${new Date().toISOString()}) ===`);
     

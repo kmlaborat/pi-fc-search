@@ -4,8 +4,13 @@
 
 import { describe, test, expect, vi } from 'vitest';
 import { spawn as originalSpawn, SpawnOptions } from 'child_process';
+import { join } from 'path';
+import { tmpdir } from 'os';
 import { getFinalAnswer } from '../../src/fastcontext-agent/utils.js';
 import { isWithinCwd } from '../../src/fastcontext-agent/utils.js';
+import { Agent } from '../../src/fastcontext-agent/agent.js';
+import { ToolSet } from '../../src/fastcontext-agent/tools/types.js';
+import { ReadTool } from '../../src/fastcontext-agent/tools/read.js';
 
 // Mock child_process.spawn
 const mockSpawn = vi.fn();
@@ -90,5 +95,36 @@ describe("Path containment verification", () => {
   test("should handle relative paths", () => {
     const cwd = "/workspace/project";
     expect(isWithinCwd("src/example.ts", cwd)).toBe(true);
+  });
+});
+
+describe("Agent loop - forced final turn (D-007, SPEC §18)", () => {
+  test("should omit tools on the final turn so the model must answer with text", async () => {
+    const toolset = new ToolSet([new ReadTool()], process.cwd());
+    const trajectoryFile = join(tmpdir(), "pi-fc-search", "trajectory_test_d7.jsonl");
+
+    const acall = vi.fn()
+      // Turn 1: model requests a tool call (tools must be offered)
+      .mockResolvedValueOnce({
+        raw: {
+          role: "assistant",
+          content: "",
+          tool_calls: [{ id: "c1", type: "function", function: { name: "Read", arguments: '{"path":"package.json"}' } }],
+        },
+        normalizedToolCalls: [{ id: "c1", name: "Read", arguments: { path: "package.json" } }],
+      })
+      // Forced final turn (maxTurns=1 → nTurn 2): model answers with text
+      .mockResolvedValueOnce({
+        raw: { role: "assistant", content: "Done.\n<final_answer>package.json:1-5</final_answer>" },
+        normalizedToolCalls: [],
+      });
+
+    const agent = new Agent("test", { acall } as any, toolset, trajectoryFile, process.cwd());
+    const result = await agent.run({ prompt: "find package.json", maxTurns: 1 });
+
+    expect(acall).toHaveBeenCalledTimes(2);
+    expect(acall.mock.calls[0][1]).toBeDefined();   // turn 1: tools offered
+    expect(acall.mock.calls[1][1]).toBeUndefined(); // final turn: tools omitted
+    expect(result).toContain("<final_answer>");
   });
 });

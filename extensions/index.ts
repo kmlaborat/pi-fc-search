@@ -164,6 +164,8 @@ async function executeAgent(
     return "[ERROR] FASTCONTEXT_MODEL is not configured. Set it in pi-fc-search/.env (see .env.example) or as a shell environment variable.";
   }
 
+  // The constants above were already resolved from .env + process.env at
+  // module load (SPEC §15.3 mapping); fail-fast checks guarantee they are set.
   const options: RunFastContextAgentOptions = {
     prompt,
     cwd,
@@ -171,9 +173,9 @@ async function executeAgent(
     citation: useCitation,
     signal: controller.signal,
     llm: {
-      model: FASTCONTEXT_MODEL || process.env.FASTCONTEXT_MODEL || "",
-      apiKey: FASTCONTEXT_API_KEY || process.env.FASTCONTEXT_API_KEY || "",
-      baseUrl: FASTCONTEXT_ENDPOINT || process.env.FASTCONTEXT_ENDPOINT || "",
+      model: FASTCONTEXT_MODEL,
+      apiKey: FASTCONTEXT_API_KEY,
+      baseUrl: FASTCONTEXT_ENDPOINT,
     }
   };
 

@@ -30,6 +30,14 @@ describe("Path Containment", () => {
     expect(result).toBe(false);
   });
 
+  test("should allow entries whose name merely starts with dots (D-009, SPEC §18)", () => {
+    const cwd = "/workspace/project";
+    // The SPEC §12 reference check (rel.startsWith("..")) falsely rejected
+    // these: rel is "..secret/file.ts", a legitimate child of cwd.
+    expect(isWithinCwd("/workspace/project/..secret/file.ts", cwd)).toBe(true);
+    expect(isWithinCwd("..secret/file.ts", cwd)).toBe(true);
+  });
+
   // Windows-specific tests (if running on Windows)
   if (process.platform === "win32") {
     test("should handle Windows drive letters case-insensitively", () => {
