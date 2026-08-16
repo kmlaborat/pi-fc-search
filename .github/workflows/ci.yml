@@ -8,30 +8,33 @@ on:
 
 jobs:
   test:
-    name: Test on ${{ matrix.os }} (native arch)
+    name: Test on ${{ matrix.os }} (node ${{ matrix.node-version }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-latest
-          - os: macos-latest
-          - os: windows-latest
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
           # arm64 runners are not available for all platforms on GitHub Actions
           # SPEC §7.5: "run on both x64 and arm64 runners if available"
           # Uncomment the following when arm64 runners become available:
-          # - os: ubuntu-24.04-arm64
-    env:
-      NODE_VERSION: '20'
+          # - ubuntu-24.04-arm64
+        # Both active LTS lines. Node 20 is EOL (2026-04) and below
+        # pi-coding-agent's minimum (>=22.19.0), so it is not a valid target.
+        node-version:
+          - 22
+          - 24
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: ${{ matrix.node-version }}
 
       - name: Verify Python not required
         shell: bash

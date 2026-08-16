@@ -148,6 +148,9 @@ implementation detail and must not alter what the main agent sends:
 1. **Runtime Environment**: Node.js only. There is no `fastcontext` CLI to install or discover on
    `PATH` — the sub-agent runs as a TypeScript module inside the `pi-fc-search` package itself.
    Ripgrep is bundled (§10.1); no separate installation step is required for it either.
+   Minimum Node version: **22.19.0** (declared in `package.json` `engines`) — dictated by the
+   host runtime (`@earendil-works/pi-coding-agent` requires `node >=22.19.0`). CI tests both
+   active LTS lines (Node 22 and 24).
 2. **Working Directory (cwd)**: The agent must be invoked with `cwd` set to the root directory of
    the target repository for exploration. All three tools (Read/Glob/Grep) are scoped to this
    directory (§12).

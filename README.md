@@ -38,14 +38,22 @@ pi install git:github.com/kmlaborat/pi-fc-search
 
 ## Prerequisites
 
-### 1. Ripgrep Dependency
+### 1. Node.js Version
+
+Requires **Node.js >= 22.19.0**. This is the minimum version of the host
+runtime (`@earendil-works/pi-coding-agent`), not a choice made by this
+package — pi-fc-search runs inside pi, so pi's own requirement applies.
+Node 20 is end-of-life (2026-04) and cannot host pi. Both current active
+LTS lines (Node 22 and Node 24) are tested in CI.
+
+### 2. Ripgrep Dependency
 
 The ported implementation requires one npm dependency:
 - `@vscode/ripgrep` - Provides prebuilt ripgrep binary for file searching (bundled, no system PATH required)
 
 > **Note**: No Python, `uv`, or Docker dependencies are required. The implementation runs entirely in TypeScript within the pi agent process.
 
-### 2. Environment Configuration
+### 3. Environment Configuration
 
 You can configure environment variables in two ways:
 
@@ -75,7 +83,7 @@ export FASTCONTEXT_ENDPOINT="https://your-fastcontext-endpoint.com"
 export FASTCONTEXT_MODEL="FastContext-RL"
 ```
 
-### 3. Dependencies
+### 4. Dependencies
 
 This extension requires exactly one npm dependency:
 - `@vscode/ripgrep` - Provides prebuilt ripgrep binary for file searching
