@@ -3,7 +3,7 @@
  * Consolidates ripgrep path resolution from multiple tool implementations.
  */
 
-import { spawnSync } from "child_process";
+import { spawn, spawnSync } from "child_process";
 
 const _cachedRgPath: { value?: string; error?: Error; resolved: boolean } = {
   value: undefined,
@@ -77,4 +77,58 @@ export async function getRgPath(): Promise<string> {
     _cachedRgPath.resolved = true;
     throw (_cachedRgPath.error as Error);
   }
+}
+
+/**
+ * Run the ripgrep binary with the given arguments.
+ *
+ * Single source of truth for ripgrep spawn handling (timeout, exit codes,
+ * error messages) shared by all tools. Behavior:
+ * - kills the child process after `timeoutSeconds`
+ * - exit code 1 (no matches / no files) resolves with whatever stdout was
+ *   produced (usually empty) — it is not an error
+ * - any other exit code rejects with stderr (or the exit code)
+ */
+export async function runRipgrep(
+  args: string[],
+  cwd: string,
+  timeoutSeconds: number
+): Promise<string> {
+  const rgPath = await getRgPath();
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(rgPath, args, { cwd, shell: false });
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+
+    const timeoutHandle = setTimeout(() => {
+      child.kill();
+      reject(new Error(`Tool timed out after ${timeoutSeconds}s`));
+    }, timeoutSeconds * 1000);
+
+    child.on("close", (code) => {
+      clearTimeout(timeoutHandle);
+
+      // ripgrep exits with 1 when nothing matches — that is success for us
+      if (code === 0 || code === 1) {
+        resolve(stdout);
+      } else {
+        reject(new Error(stderr || `Ripgrep exited with code ${code}`));
+      }
+    });
+
+    child.on("error", (err) => {
+      clearTimeout(timeoutHandle);
+      reject(err);
+    });
+  });
 }

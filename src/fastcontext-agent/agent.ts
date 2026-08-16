@@ -110,7 +110,14 @@ export class Agent {
           await this.context.add(toolMessages);
         } else {
           // LLM provided final answer — extract from raw object's content field
-          const content = stepResult.raw.content || "";
+          const content =
+            typeof stepResult.raw.content === "string" ? stepResult.raw.content : "";
+          if (!content.trim()) {
+            // Guard against servers returning empty/null content (e.g. output
+            // truncated by the max token limit). Returning an empty string
+            // surfaces to the caller as a mysterious "no response".
+            return "[ERROR] The LLM returned an empty response (output may have been truncated). Please retry the search.";
+          }
           return citation ? getFinalAnswer(content) : content;
         }
       } catch (error) {

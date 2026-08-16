@@ -66,7 +66,7 @@ describe("ReadTool - Extended Tests", () => {
         { cwd: TEST_FIXTURES_DIR }
       );
 
-      // Negative offset should be treated as 1 (start from beginning)
+      // SPEC §8.1: negative offset is treated as 1 (start from beginning)
       expect(result).toContain("1|");
     });
 

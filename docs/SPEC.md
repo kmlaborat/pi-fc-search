@@ -89,15 +89,19 @@ pi (Node) --function call--> fastcontext-agent (TS module, same process)
 │       ├── agent.ts              # agent loop (port of agent.py)
 │       ├── llm.ts                # OpenAI-compatible chat completions client (port of llm.py)
 │       ├── context.ts            # message history + trajectory JSONL writer (port of context.py)
+│       ├── env.ts                # shared, idempotent .env loader (package root; see §15.2)
 │       ├── prompt.ts             # system prompt template loader (port of utils.py + system.md)
 │       ├── system.md             # verbatim ported system prompt template
 │       ├── tools/
 │       │   ├── types.ts          # Tool interface, ToolResult, ToolSet (port of tool.py)
 │       │   ├── read.ts           # port of read.py + read.md
 │       │   ├── glob.ts           # port of glob.py + glob.md
-│       │   └── grep.ts           # port of grep.py + grep.md
+│       │   ├── grep.ts           # port of grep.py + grep.md
+│       │   └── rg.ts             # ripgrep binary resolution + shared spawn helper (§10.1, §14)
 │       └── index.ts              # public entry point: runFastContextAgent(...)
 ├── package.json                  # only dependency: @vscode/ripgrep (see §10)
+├── .env.example                  # template for FASTCONTEXT_* configuration (see §15)
+├── tests/                        # vitest suites (unit + integration; fixtures are ephemeral, see §13 Requirement A)
 └── skills/pi-fc-search/SKILL.md  # unchanged (external contract does not change)
 ```
 
@@ -146,7 +150,7 @@ implementation detail and must not alter what the main agent sends:
    Ripgrep is bundled (§10.1); no separate installation step is required for it either.
 2. **Working Directory (cwd)**: The agent must be invoked with `cwd` set to the root directory of
    the target repository for exploration. All three tools (Read/Glob/Grep) are scoped to this
-   directory (§11).
+   directory (§12).
 3. **Authentication Environment Variables**: Environment variables required for the sub-agent's
    own LLM API calls must be configured. The extension supports multiple configuration methods:
    - Shell environment variables (exported before running `pi`)
@@ -154,13 +158,6 @@ implementation detail and must not alter what the main agent sends:
 
    The extension automatically loads `.env` from the package directory at module initialization time:
    - Package directory (`pi-fc-search/.env`) — typically project root level where the package is installed
-
-   **Environment Variable Mapping** (naming convention unchanged from the original design, to
-   avoid a breaking change for existing `.env` files — only the *consumer* changes, from a child
-   process's `env` object to a plain in-process config object passed to `llm.ts`):
-   - `FASTCONTEXT_API_KEY` → `RunFastContextAgentOptions.llm.apiKey`
-   - `FASTCONTEXT_ENDPOINT` → `RunFastContextAgentOptions.llm.baseUrl`
-   - `FASTCONTEXT_MODEL` → `RunFastContextAgentOptions.llm.model`
 
    **Environment Variable Mapping** (naming convention unchanged from the original design, to
    avoid a breaking change for existing `.env` files — only the *consumer* changes, from a child
@@ -232,6 +229,10 @@ truncated.)
    paths.
 2. The line ranges presented must be valid line numbers actually existing in the target file.
 
+> **Note:** These are expectations on the sub-agent's (model's) output, as instructed by
+> `system.md` (§9.4). The wrapper does **not** verify them — it passes the final answer through
+> unmodified (§3.2) and performs no path or line-number validation.
+
 ---
 
 ## 4. Invariants
@@ -250,7 +251,8 @@ The following conditions must always be maintained throughout the tool's executi
    (ripgrep), spawned by the Glob/Grep tools.
 5. **Ripgrep-bundling invariant**: The `rg` binary used by Glob/Grep must come from the bundled
    `@vscode/ripgrep` dependency (§10), never from an assumption that `rg` is on the user's system
-   `PATH`. System `PATH` may be used only as a fallback, never as the primary path.
+   `PATH`. System `PATH` may be used only as a fallback, never as the primary path. (An operator-set
+   `RIPGREP_PATH` environment variable is a documented exception — see §10.1.)
 6. **Behavioral parity invariant**: Tool JSON schemas, truncation limits, permission checks, and
    system prompt content must match the original Python implementation exactly, per §8–§9, unless
    explicitly marked as changed in this document.
@@ -263,7 +265,7 @@ The following conditions must always be maintained throughout the tool's executi
    needed).
 9. **Working-directory containment invariant**: Read/Glob/Grep must refuse to operate outside the
    `cwd` passed in by the caller, using path comparison that is correct on Windows (drive letters,
-   case-insensitivity, backslash vs forward-slash) — see §11.
+   case-insensitivity, backslash vs forward-slash) — see §12.
 10. **Cancellation invariant**: The agent must respect the `AbortSignal` passed in from
     `pi.registerTool(...).execute(...)`, cancelling in-flight LLM `fetch` calls and stopping before
     the next turn. Because there is no child process to `SIGKILL` anymore, cancellation must be
@@ -280,7 +282,7 @@ export interface RunFastContextAgentOptions {
   cwd: string;                 // absolute path, working directory the agent is scoped to
   maxTurns?: number;           // default 15
   citation?: boolean;          // default false — if true, return only the <final_answer> block
-  trajectoryFile?: string;     // default: `${cwd}/.fastcontext/trajectory_<timestamp>.jsonl`
+  trajectoryFile?: string;     // default: `${os.tmpdir()}/pi-fc-search/trajectory_<timestamp>.jsonl` (never written into the searched repo)
   signal?: AbortSignal;
   llm: {
     model: string;
@@ -290,7 +292,6 @@ export interface RunFastContextAgentOptions {
     topP?: number;             // default 0.95
     maxTokens?: number;        // default 32000
   };
-  verbose?: boolean;
 }
 
 export async function runFastContextAgent(
@@ -312,7 +313,7 @@ return them to the `pi` runtime in the following format.
 
 | Occurrence Condition | Expected System Behavior / Returned Error Format |
 | --- | --- |
-| **Missing Parameters** | Error detected by `pi` runtime validation (JSON Schema) or by `validateInput` in §12. Prompt for re-request to LLM or return `Invalid tool arguments`. |
+| **Missing Parameters** | Error detected by `pi` runtime validation (JSON Schema) or by `validateInput` in §14. Prompt for re-request to LLM or return `Invalid tool arguments`. |
 | **No Matching Code Found** | Normal completion and return of the agent's own natural-language "nothing found" answer. The main agent interprets it directly — this is not a wrapper-level error case. |
 | **LLM API Error / Endpoint Unreachable** | The agent loop captures the fetch failure, appends an assistant message describing it, and returns that message as the final output rather than throwing out of `runFastContextAgent`. |
 | **Ripgrep binary missing for current platform/arch** | Fall back to system `PATH` resolution of `rg`; if that also fails, the Glob/Grep tool call returns a `failed: true` `ToolResult` with a clear message. Never throw uncaught, never crash the `pi` extension host. |
@@ -392,7 +393,7 @@ Run the full `fc_search` tool end-to-end on all three target OSes with no Python
 
 In all three cases, result output must be structurally identical (same truncation limits, same
 message text) for equivalent fixture inputs — no OS-specific branches in the tool/agent code
-should be needed to achieve this. See §12 (Requirement D) for the CI implementation strategy.
+should be needed to achieve this. See §13 (Requirement D) for the CI implementation strategy.
 
 ---
 
@@ -433,7 +434,7 @@ should be needed to achieve this. See §12 (Requirement D) for the CI implementa
 - **Behavior**:
   - Reject if `directory` is not an existing directory.
   - Reject with `` `Permission error: \`${directory}\` is not within the working directory \`${cwd}\`.` ``
-    if `directory` resolves outside `cwd` (see §11 for correct Windows path containment logic).
+    if `directory` resolves outside `cwd` (see §12 for correct Windows path containment logic).
   - Run: `rg --files ${directory} --glob ${pattern}` with `cwd` as the subprocess cwd, using the
     bundled `rgPath` (§10.1), 10s timeout.
   - On timeout: `` `Tool \`Glob\` timed out after 10s.` ``
@@ -477,7 +478,7 @@ should be needed to achieve this. See §12 (Requirement D) for the CI implementa
   `"count"` in the original Python — preserve this exact inconsistency rather than "fixing" it,
   since fixing it is a behavior change out of scope for this port; flag it in code comments as a
   known upstream quirk).
-  - Reject if `path` resolves outside `cwd` (same containment check as Glob, §11).
+  - Reject if `path` resolves outside `cwd` (same containment check as Glob, §12).
   - Always append `--heading --color never` to the `rg` invocation.
   - Cap output to **100 lines** by default; if `head_limit` is provided and
     `0 < head_limit < 100`, use `head_limit` instead. Append
@@ -497,6 +498,57 @@ should be needed to achieve this. See §12 (Requirement D) for the CI implementa
   `asyncio.create_task` line). You may parallelize with `Promise.all` in the TS port **only if**
   you keep per-call error isolation and the 10s-per-call timeout; note this as an intentional
   improvement over upstream, not a silent behavior change.
+
+### 8.5 Docker-mount absolute path resolution (FastContext model compatibility)
+
+FastContext models trained in SWE-bench-like environments with Docker mounts frequently produce
+tool-call path arguments that are not real filesystem paths but "relative to repo root" intents:
+
+```json
+// FastContext output pattern (not a real filesystem path):
+{"path": "/pi-fc-search/package.json", ...}
+```
+
+This is not an error — the model learned these patterns during training in `/repo-name/` mount
+environments. The implementation must attempt to resolve such paths by trying multiple candidate
+strategies, as follows.
+
+**Resolution function: `resolveDockerMountPath(originalPath, cwd)`**
+
+| Strategy | Description | Example |
+|---|---|---|
+| 1 | Direct resolution if already within cwd | `/workspace/...` stays as-is |
+| 2 | Strip leading `/`, treat as relative to cwd | `/package.json` → `./package.json` |
+| 3 | Strip `/\<cwd-basename\>/` prefix (mount style) | `/pi-fc-search/package.json` → `./package.json` |
+| 4 | Match and strip any leading component equal to cwd basename | Recursive scan of path components |
+
+**Return value:** `{ resolved: string, correction?: string }` on success, `null` if unresolvable.
+If a transformation was applied, include a correction note for tool output.
+
+**Example usage in tools (read.ts pattern):**
+```typescript
+const absoluteCwd = ctx.cwd;
+let resolvedPath: string;
+let pathCorrection: string | undefined;
+
+const dockerResolution = resolveDockerMountPath(filePath, absoluteCwd);
+if (dockerResolution) {
+  resolvedPath = dockerResolution.resolved;
+  pathCorrection = dockerResolution.correction;
+} else {
+  resolvedPath = resolve(filePath); // standard fallback
+}
+
+// isWithinCwd check applies AFTER correction to the final resolved path
+```
+
+This function must be called before `isWithinCwd` validation in Read, Glob, and Grep tools.
+When a correction succeeds, tools may prepend `[Path corrected from X to Y]` to their output,
+of which example is:
+```typescript
+correctionNote = pathCorrection ? `[${pathCorrection}]\n` : "";
+```
+
 
 ---
 
@@ -596,57 +648,6 @@ still applies), `WORK_DIR` (the `cwd` passed in), `WORK_DIR_LS` (newline-joined
 `fs.readdirSync(cwd)` — top-level entries only, matching `os.listdir` semantics, not recursive).
 
 ---
-
-### 10.4 Docker-mount absolute path resolution (FastContext model compatibility)
-
-FastContext models trained in SWE-bench-like environments with Docker mounts frequently produce
-tool-call path arguments that are not real filesystem paths but "relative to repo root" intents:
-
-```json
-// FastContext output pattern (not a real filesystem path):
-{"path": "/pi-fc-search/package.json", ...}
-```
-
-This is not an error — the model learned these patterns during training in `/repo-name/` mount
-environments. The implementation must attempt to resolve such paths by trying multiple candidate
-strategies, as follows.
-
-**Resolution function: `resolveDockerMountPath(originalPath, cwd)`**
-
-| Strategy | Description | Example |
-|---|---|---|
-| 1 | Direct resolution if already within cwd | `/workspace/...` stays as-is |
-| 2 | Strip leading `/`, treat as relative to cwd | `/package.json` → `./package.json` |
-| 3 | Strip `/\<cwd-basename\>/` prefix (mount style) | `/pi-fc-search/package.json` → `./package.json` |
-| 4 | Match and strip any leading component equal to cwd basename | Recursive scan of path components |
-
-**Return value:** `{ resolved: string, correction?: string }` on success, `null` if unresolvable.
-If a transformation was applied, include a correction note for tool output.
-
-**Example usage in tools (read.ts pattern):**
-```typescript
-const absoluteCwd = ctx.cwd;
-let resolvedPath: string;
-let pathCorrection: string | undefined;
-
-const dockerResolution = resolveDockerMountPath(filePath, absoluteCwd);
-if (dockerResolution) {
-  resolvedPath = dockerResolution.resolved;
-  pathCorrection = dockerResolution.correction;
-} else {
-  resolvedPath = resolve(filePath); // standard fallback
-}
-
-// isWithinCwd check applies AFTER correction to the final resolved path
-```
-
-This function must be called before `isWithinCwd` validation in Read, Glob, and Grep tools.
-When a correction succeeds, tools may prepend `[Path corrected from X to Y]` to their output,
-of which example is:
-```typescript
-correctionNote = pathCorrection ? `[${pathCorrection}]\n` : "";
-```
-
 ## 10. Dependencies (`package.json`)
 
 The `pi-fc-search` package has exactly **one** npm dependency:
@@ -667,6 +668,11 @@ import { rgPath } from "@vscode/ripgrep";
 
 Use `rgPath` as the primary binary path for Glob/Grep; fall back to system `PATH`-resolved `rg`
 only if the bundled binary is somehow unavailable, and log a warning in that fallback case (§6).
+
+**Operator override:** If the `RIPGREP_PATH` environment variable is set, it takes precedence
+over the bundled binary. This exists so CI/debugging can point the tools at a specific `rg`
+build (e.g. a patched binary). It is an explicit, documented exception to the §4.5 bundling
+invariant; system `PATH` lookup remains strictly a fallback and is never the primary source.
 
 **Why `@vscode/ripgrep` over alternatives:**
 
@@ -697,7 +703,7 @@ call against such servers.
 When storing LLM responses in conversation history:
 
 1. The **raw `message` object returned by the server** (including its nested `{id, function: {name, arguments}}` structure) is stored directly in the `messages` array without modification.
-2. A **normalized flat struct** ({id, name, arguments}) may be derived temporarily for tool execution but must not be written back into history or the next API request — this breaks the transformation chain that caused the "function field disappears" bug (see §10.4 for details).
+2. A **normalized flat struct** ({id, name, arguments}) may be derived temporarily for tool execution but must not be written back into history or the next API request — this breaks the transformation chain that caused the "function field disappears" bug.
 3. If a server returns `tool_call.id: null`, synthesize an id (`call_{uuid}`) on the raw object itself before storing, rather than creating a new transformed struct.
 
 This invariant is maintained by:
@@ -727,17 +733,20 @@ Use `path.relative` + `path.isAbsolute` (both Windows-aware in Node's `path` mod
 
 ---
 
-## 12. TDD Task Breakdown
+## 13. TDD Task Breakdown
 
 Implement and verify in this order; do not reorder.
 
 ### Requirement A: Tool parity
-**Acceptance Test:** For a fixture directory, `Read`/`Glob`/`Grep` TS implementations produce
-byte-identical output to the Python originals for: (1) a normal file read, (2) an out-of-range
+**Acceptance Test:** For fixture directories, the `Read`/`Glob`/`Grep` TS implementations
+produce output exactly matching expected strings transcribed from the Python originals (Python
+is not executed in CI — parity was established against the originals once, and the expected
+strings are frozen in the test suite) for: (1) a normal file read, (2) an out-of-range
 `offset`, (3) a glob with >100 matches (verify truncation message), (4) a grep with
 `output_mode: "content"` and `-C 3`, (5) a path-containment violation for all three tools.
-**Implementation Strategy:** Port §8.1–§8.4 exactly; write fixtures under a `__fixtures__/` dir
-committed to the package for repeatable testing.
+**Implementation Strategy:** Port §8.1–§8.4 exactly; fixtures are generated in a temporary
+directory at test setup (created in `beforeAll`, removed in `afterAll`) so the package tree
+stays clean and no fixture state leaks between runs.
 
 ### Requirement B: Agent loop parity
 **Acceptance Test:** Given a mocked LLM client that returns a scripted sequence of tool calls then
@@ -756,7 +765,7 @@ child process for `fastcontext` itself (verify via a test that stubs/spies on `c
 and asserts it is not called for this purpose — see §7.4), and returns output structurally
 equivalent to the original `executeFastcontext` return value for the same inputs.
 **Implementation Strategy:** Replace the `executeFastcontext` function body with a call to
-`runFastContextAgent(...)` (§5); keep `validateInput` (§13), the tool schema (§2.1), `onUpdate`
+`runFastContextAgent(...)` (§5); keep `validateInput` (§14), the tool schema (§2.1), `onUpdate`
 progress reporting, and the `pi.registerTool(...)` registration unchanged.
 
 ### Requirement D: Cross-platform verification (Windows / macOS / Linux)
@@ -770,7 +779,7 @@ assumption and fix the implementation, not the test.
 
 ---
 
-## 13. Process Execution Security Design (Ripgrep Subprocess Only)
+## 14. Process Execution Security Design (Ripgrep Subprocess Only)
 
 The only remaining subprocess in this design is `rg` (ripgrep), spawned by the Glob/Grep tools.
 The same guidelines that previously applied to spawning the `fastcontext` CLI now apply to it:
@@ -815,12 +824,12 @@ const child = spawn(rgPath, ['--files', directory, '--glob', pattern], {
 
 ---
 
-## 14. Environment Configuration and `.env` File Support
+## 15. Environment Configuration and `.env` File Support
 
 Unchanged in mechanism from the original design; only the consumer of the resulting values changed
 (§2.2.3).
 
-### 14.1 `.env` File Format
+### 15.1 `.env` File Format
 
 ```env
 # API key for the sub-agent's LLM calls (optional)
@@ -833,57 +842,52 @@ FASTCONTEXT_ENDPOINT=https://your-fastcontext-endpoint.com
 FASTCONTEXT_MODEL=fastcontext-model-name
 ```
 
-### 14.2 `.env` File Loading Implementation
+### 15.2 `.env` File Loading Implementation
 
 Loaded using only Node.js built-in modules (no external dependencies like `dotenv`):
 
 ```typescript
+// src/fastcontext-agent/env.ts — implemented ONCE, shared by
+// extensions/index.ts and src/fastcontext-agent/llm.ts (both call it at
+// module initialization). Idempotent: safe to call from multiple modules.
+
 import { readFileSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-function loadEnvFile(): void {
-  // Package directory only — matches both local and git installations
-  const envPath = resolve(dirname(import.meta.url), '..', '..', '.env');
+let loaded = false;
 
-  if (existsSync(envPath)) {
+export function loadEnvFile(): void {
+  if (loaded) return;
+  loaded = true;
+
+  // Package root only (env.ts lives in src/fastcontext-agent/ → two levels up)
+  const envPath = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '.env');
+  if (!existsSync(envPath)) return;
+
+  try {
     const content = readFileSync(envPath, 'utf-8');
-    const lines = content.split(/\r?\n/);
-    
-    for (const line of lines) {
-    if (existsSync(path)) {
-      try {
-        const content = readFileSync(path, 'utf-8');
-        const lines = content.split(/\r?\n/);
-        
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || trimmed.startsWith('#')) continue;
-          
-          const eqIndex = trimmed.indexOf('=');
-          if (eqIndex > 0) {
-            const key = trimmed.substring(0, eqIndex).trim();
-            let value = trimmed.substring(eqIndex + 1).trim();
-            
-            if ((value.startsWith('"') && value.endsWith('"')) ||
-                (value.startsWith("'") && value.endsWith("'"))) {
-              value = value.slice(1, -1);
-            }
-            
-            process.env[key] = value;
-          }
-        }
-      } catch (e) {
-        // Silently fail if .env file can't be read
+    for (const line of content.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIndex = trimmed.indexOf('=');
+      if (eqIndex <= 0) continue;
+      const key = trimmed.substring(0, eqIndex).trim();
+      let value = trimmed.substring(eqIndex + 1).trim();
+      if ((value.startsWith('"') && value.endsWith('"')) ||
+          (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
       }
+      process.env[key] = value;
     }
+  } catch (e) {
+    // Warn but continue — a broken .env must not break extension startup
+    console.error(`[pi-fc-search] Warning: Failed to load .env file: ${e}`);
   }
 }
-
-// Load environment variables at module initialization
-loadEnvFile();
 ```
 
-### 14.3 Environment Variable → `RunFastContextAgentOptions.llm` Mapping
+### 15.3 Environment Variable → `RunFastContextAgentOptions.llm` Mapping
 
 ```typescript
 const llmOptions: RunFastContextAgentOptions["llm"] = {
@@ -899,7 +903,7 @@ is no more risk of leaking unrelated `process.env` entries into a subprocess, si
 
 ---
 
-## 15. Non-Goals / Out of Scope
+## 16. Non-Goals / Out of Scope
 
 1. **Automatic Code Modification / Patch Application**: This tool is specialized for "codebase
    exploration and identification," and does not have any modification features such as `sed`,
@@ -924,7 +928,7 @@ is no more risk of leaking unrelated `process.env` entries into a subprocess, si
 
 ---
 
-## 16. Known Issues & Technical Debt
+## 17. Known Issues & Technical Debt
 
 ### KN-001: Halted Exploration on Hallucinated Paths
 The model may infer non-existent directory names from file names (e.g., `duet.json` → `duet-js/`) 
@@ -954,8 +958,10 @@ tendency.
 **Mitigation**: Set `FASTCONTEXT_MODEL` to an SFT model in environment configuration.
 
 ### KN-004: Ripgrep Regular Expression Syntax Errors
-Ripgrep occasionally returns regex syntax errors (e.g., `repetition operator missing expression`) 
-from patterns generated by the LLM. Currently, raw error messages are returned directly as tool results.
+Ripgrep occasionally returns regex syntax errors (e.g., `repetition operator missing expression`)
+from patterns generated by the LLM. Tool results carry the raw rg error text; for
+`regex parse error` specifically, the Grep tool appends a one-line `[Hint]` suggesting a simpler
+pattern (all other rg errors are passed through raw).
 
 **Example errors**:
 - `regex parse error:` with various pattern descriptions
@@ -989,3 +995,25 @@ General-purpose tool calling model verified to cover fastcontext functionality w
 **Sampling Notes for Qwen3.5-based Models**:
 - `enable_thinking: false` — prevent token waste on CoT blocks
 - `presence_penalty: 1.5` — may reduce path repetition in failed explorations
+
+---
+
+## 18. Documented Deviations (Intentional, Post-Port Hardening)
+
+The following intentional deviations from strict upstream parity were introduced after the
+initial port. Each applies only to a case the upstream behavior left undefined or handled
+buggily, and none changes a mandated message text or limit from §6/§8. Per the §4.6
+behavioral-parity invariant, deviations are only valid when explicitly recorded here.
+
+| ID | Deviation | Rationale |
+|---|---|---|
+| **D-001** | Default trajectory file is written to `${os.tmpdir()}/pi-fc-search/` instead of inside the searched repository (§5 `trajectoryFile` default) | The previous default violated the §4.1 read-only invariant for the target repo and polluted user projects with unbounded debug artifacts. The `trajectoryFile` option still allows explicit paths (e.g. for benchmark runs). |
+| **D-002** | Each trajectory message is written as exactly one compact JSON line (strict JSONL) | The initial port pretty-printed multi-line blocks, contradicting Requirement B's "writes one JSONL line per message". |
+| **D-003** | Aborts of the in-flight LLM `fetch` (timeout or user cancellation) are re-thrown unwrapped from `llm.ts` instead of being converted into a `RequestyAPIError` | Without this, the §6 "Timeout" and "AbortSignal fires mid-turn" rows were unreachable: aborts surfaced as `LLM API call failed` strings and the 120s timeout message never fired. |
+| **D-004** | If the model's final message content is empty or whitespace-only, the agent returns an explicit `[ERROR] The LLM returned an empty response ...` message instead of an empty string | An empty final answer surfaced to the main agent as a mysterious "no response"; typically caused by output truncation at the max-token limit. |
+| **D-005** | `fc_search` fails fast with an explicit `[ERROR]` message when `FASTCONTEXT_ENDPOINT` or `FASTCONTEXT_MODEL` is unset | Without this, an empty base URL produced an opaque `fetch` failure deep in the agent loop after configuration was effectively broken. (Upstream Python had real defaults; this TS port does not, so the check is required.) |
+
+Known upstream quirks deliberately **preserved** (not deviations, per the parity invariant):
+the `Read` 2000-char line limit vs. `read.md`'s "500 characters" prose (§8.1), negative
+`offset` being treated as `1` (§8.1), the `count`/`count_matches` output-mode inconsistency
+(§8.3), and the verbatim `glob.md` description text (§9.1).

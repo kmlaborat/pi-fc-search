@@ -6,9 +6,9 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import * as fs from "fs";
 import * as path from "path";
 import { runFastContextAgent, RunFastContextAgentOptions } from "../src/fastcontext-agent/index.js";
+import { loadEnvFile } from "../src/fastcontext-agent/env.js";
 
 // Tool input schema (JSON Schema format - zero external dependencies)
 const SearchToolSchema = {
@@ -22,7 +22,7 @@ const SearchToolSchema = {
     },
     prompt: {
       type: "string",
-      description: "Detailed natural language instruction or question for repository search",
+      description: "Detailed natural language instruction or question for repository exploration.",
       maxLength: 2000,
     },
     max_turns: {
@@ -51,44 +51,12 @@ export interface SearchToolInput {
 const TIMEOUT_SECONDS = 120;
 
 // ============================================================================
-// .env File Loader
+// .env Loading
 // ============================================================================
 
-function loadEnvFile(): void {
-  try {
-    // Search for .env only in the package directory (project root level)
-    const envPath = path.join(__dirname, '..', '.env');
-    
-    if (fs.existsSync(envPath)) {
-      const content = fs.readFileSync(envPath, 'utf-8');
-      const lines = content.split('\n');
-      
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith('#')) continue;
-        
-        const eqIndex = trimmed.indexOf('=');
-        if (eqIndex === -1) continue;
-        
-        const key = trimmed.substring(0, eqIndex).trim();
-        let value = trimmed.substring(eqIndex + 1).trim();
-        
-        // Remove surrounding quotes if present
-        if ((value.startsWith('"') && value.endsWith('"')) || 
-            (value.startsWith("'") && value.endsWith("'"))) {
-          value = value.slice(1, -1);
-        }
-        
-        process.env[key] = value;
-      }
-    }
-  } catch (error) {
-    // Log error for debugging but continue - don't crash extension on .env issues
-    console.error(`[pi-fc-search] Warning: Failed to load .env file. API key and configuration may not be available.`);
-  }
-}
-
-// Load environment variables at module initialization
+// Load environment variables at module initialization (shared, idempotent
+// loader in src/fastcontext-agent/env.ts). Must run before the constants
+// below are read.
 loadEnvFile();
 
 // ============================================================================
@@ -186,6 +154,16 @@ async function executeAgent(
     clearTimeout(timeoutId);
   });
 
+  // Fail fast with an actionable message when configuration is missing.
+  // Without this, an empty base URL produces a cryptic fetch error after
+  // the agent has already burned turns on a dead endpoint.
+  if (!FASTCONTEXT_ENDPOINT) {
+    return "[ERROR] FASTCONTEXT_ENDPOINT is not configured. Set it in pi-fc-search/.env (see .env.example) or as a shell environment variable.";
+  }
+  if (!FASTCONTEXT_MODEL) {
+    return "[ERROR] FASTCONTEXT_MODEL is not configured. Set it in pi-fc-search/.env (see .env.example) or as a shell environment variable.";
+  }
+
   const options: RunFastContextAgentOptions = {
     prompt,
     cwd,
@@ -202,23 +180,29 @@ async function executeAgent(
   try {
     return await runFastContextAgent(options);
   } catch (error) {
-    // Handle timeout
-    if (controller.signal.reason instanceof Error && 
-        controller.signal.reason.message === "timeout") {
+    // Determine why the abort fired. `AbortSignal.reason` may be an Error,
+    // a string, or anything else — normalize it.
+    const reason = controller.signal.reason;
+    const reasonMessage =
+      reason instanceof Error ? reason.message : typeof reason === "string" ? reason : "";
+
+    // Handle timeout (covers the fetch AbortError, the agent's per-turn
+    // abort check, and any other error raised after the timer fired).
+    // Message text is the exact SPEC §6 string — do not append extra prose.
+    if (controller.signal.aborted && reasonMessage === "timeout") {
       return "[ERROR] pi-fc-search execution timeout exceeded (120 seconds).";
     }
-    
+
     // Handle user cancellation
-    if (controller.signal.reason instanceof Error && 
-        controller.signal.reason.message === "cancelled") {
+    if (controller.signal.aborted) {
       throw new Error("Operation was cancelled");
     }
-    
-    // Handle AbortError from fetch
+
+    // Handle AbortError from fetch (defensive: no linked controller abort)
     if (error instanceof Error && error.name === "AbortError") {
       throw new Error("Operation was cancelled");
     }
-    
+
     // Return raw error for agent to interpret
     return `[ERROR] ${error instanceof Error ? error.message : "Unknown error occurred"}`;
   }

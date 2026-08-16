@@ -10,7 +10,7 @@ import * as path from "node:path";
 
 /**
  * Check if a candidate path is within the specified working directory.
- * Windows-correct path containment implementation (SPEC §10)
+ * Windows-correct path containment implementation (SPEC §12)
  */
 export function isWithinCwd(candidate: string, cwd: string): boolean {
   const resolvedCwd = pathResolve(cwd);

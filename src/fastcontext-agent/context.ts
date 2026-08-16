@@ -53,6 +53,8 @@ export class Context {
 
     // Write to trajectory file (JSONL format)
     try {
+      // One compact JSON object per line — strict JSONL so the trajectory
+      // can be parsed line-by-line with standard tooling.
       const lines = messages.map(msg => {
         const obj: any = {};
         for (const [key, value] of Object.entries(msg)) {
@@ -60,7 +62,7 @@ export class Context {
             obj[key] = value;
           }
         }
-        return JSON.stringify(obj, null, 2);
+        return JSON.stringify(obj);
       });
 
       writeFileSync(this.trajectoryFile, lines.join("\n") + "\n", { flag: "a" });

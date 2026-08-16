@@ -18,6 +18,7 @@ This package integrates Microsoft's fastcontext tool with the pi coding agent, e
 - **Citation mode**: Returns machine-readable `<final_answer>` block with file paths and line ranges (fastcontext `--citation` flag)
 - **Context-efficient**: Returns only relevant file locations and summaries
 - **Pass-through output**: Final answers returned without wrapper-level truncation
+- **No repo pollution**: debug trajectories are written to the OS temp directory, never into the searched repository
 - **Error handling**: Comprehensive error reporting and recovery
 - **Zero external dependencies**: Uses only `@vscode/ripgrep` (all other logic uses Node.js built-ins)
 
@@ -32,7 +33,7 @@ pi install ./path/to/pi-fc-search
 ### From git repository
 
 ```bash
-pi install git:github.com/user/pi-fc-search
+pi install git:github.com/kmlaborat/pi-fc-search
 ```
 
 ## Prerequisites
@@ -184,6 +185,19 @@ The extension handles the following error cases:
 | Timeout | Operation exceeds 120 seconds | Simplify query or retry |
 | User Cancellation | Tool call cancelled during execution | Retry if needed |
 
+### Troubleshooting: macOS Gatekeeper on the bundled `rg` binary
+
+If a Glob/Grep-based search fails with an OS error mentioning quarantine, `EACCES`, or
+`ENOENT` for the `rg` binary (only possible if the binary was copied outside a normal
+`npm install`), clear the quarantine attribute:
+
+```bash
+xattr -d com.apple.quarantine "$(node -e "console.log(require('@vscode/ripgrep').rgPath)")"
+```
+
+A standard `npm install` / `pi install` does not trigger Gatekeeper, so this should not be
+needed in practice (SPEC §6).
+
 ## Package Structure
 
 ```
@@ -239,9 +253,9 @@ This extension complies with the following SPEC requirements:
 - **Timeout**: 120 second timeout with AbortSignal coordination
 - **Cancellation**: Cooperative cancellation via AbortSignal (SPEC §4.10)
 - **Tests**: Comprehensive test suite with vitest
-- **SPEC Version**: Compliant with docs/SPEC.md (Revision: Native TypeScript Sub-Agent)
+- **SPEC Version**: Compliant with docs/SPEC.md (Revision: Native TypeScript Sub-Agent, incl. section 17 documented deviations)
 
-> **Verification**: Implementation has been verified against SPEC with 0 discrepancies found. All 67 acceptance tests pass.
+> **Verification**: Implementation audited against SPEC sections 1-16. All mandated message texts, limits, and schemas match; the five intentional hardening deviations are recorded in SPEC section 17 (D-001 to D-005). Full test suite: `npm test` (94 passed, 2 skipped) and `npm run typecheck`.
 
 ## Known Issues & TODO
 

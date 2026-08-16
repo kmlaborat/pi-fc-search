@@ -3,8 +3,7 @@
  * Ported from src/fastcontext/agent/tool/tool.py
  */
 
-import { spawn } from "child_process";
-import type { Message, FunctionCall as LlmFunctionCall } from "../llm.js";
+import type { Message } from "../llm.js";
 
 export const MAX_TOOLRUN_TIMEOUT = 10; // seconds per tool call timeout
 
@@ -88,8 +87,9 @@ export class ToolSet {
     // Sequential execution with per-call timeout
     for (const call of normalizedToolCalls) {
       try {
+        // SPEC §8.4: timeout ToolResult message includes the tool name
         const timeoutPromise = new Promise<ToolResult>((_, reject) => {
-          setTimeout(() => reject(new Error(`Tool timed out after ${MAX_TOOLRUN_TIMEOUT}s`)), 
+          setTimeout(() => reject(new Error(`Tool \`${call.name}\` timed out after ${MAX_TOOLRUN_TIMEOUT}s.`)),
             MAX_TOOLRUN_TIMEOUT * 1000);
         });
 
@@ -115,7 +115,7 @@ export class ToolSet {
     if (!tool) {
       return {
         toolCallId: call.id,
-        output: `Tool \\'${call.name}\' not found.`,
+        output: `Tool \`${call.name}\` not found.`,
         failed: true
       };
     }
@@ -157,9 +157,9 @@ export class ToolSet {
     // Sequential execution - each call waits for the previous to complete
     for (const toolCall of message.tool_calls) {
       try {
-        // Create timeout promise
+        // Create timeout promise (SPEC §8.4: message includes the tool name)
         const timeoutPromise = new Promise<ToolResult>((_, reject) => {
-          setTimeout(() => reject(new Error(`Tool timed out after ${MAX_TOOLRUN_TIMEOUT}s`)), 
+          setTimeout(() => reject(new Error(`Tool \`${(toolCall as FunctionCall).function.name}\` timed out after ${MAX_TOOLRUN_TIMEOUT}s.`)),
             MAX_TOOLRUN_TIMEOUT * 1000);
         });
         
@@ -219,40 +219,7 @@ export class ToolSet {
 }
 
 /**
- * Helper to run ripgrep command.
- * Re-exported from centralized rg path resolver for consistency.
+ * Helper to run ripgrep commands.
+ * Re-exported from the centralized rg module for convenience.
  */
-export { getRgPath } from "./rg.js";
-
-/**
- * @deprecated Use the centralized getRipgrep function in tools/rg.ts instead.
- */
-export async function runRipgrep(args: string[], cwd: string): Promise<string> {
-  const { getRgPath } = await import("./rg.js");
-  const rgPath = await getRgPath();
-
-  return new Promise((resolve, reject) => {
-    const child = spawn(rgPath, args, { cwd, shell: false });
-    
-    let stdout = "";
-    let stderr = "";
-    
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk;
-    });
-    
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk;
-    });
-    
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolve(stdout);
-      } else {
-        reject(new Error(stderr || `Ripgrep exited with code ${code}`));
-      }
-    });
-    
-    child.on("error", (err) => reject(err));
-  });
-}
+export { getRgPath, runRipgrep } from "./rg.js";

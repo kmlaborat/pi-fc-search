@@ -5,10 +5,9 @@
 
 import { existsSync, statSync } from "fs";
 import { resolve } from "path";
-import { spawn } from "child_process";
 import { isWithinCwd, resolveDockerMountPath } from "../utils.js";
 import type { Tool, CallContext, ToolResult } from "./types.js";
-import { getRgPath } from "./rg.js";
+import { runRipgrep } from "./rg.js";
 
 const GLOB_DESCRIPTION = `- Fast file pattern matching tool that works with any codebase size
 - Supports glob patterns like "**/*.js" or "src/**/*.ts"
@@ -88,7 +87,7 @@ export class GlobTool implements Tool {
         return `The directory \`${resolvedDirectory}\` is not a directory.`;
       }
 
-      // Check containment within working directory (SPEC §10)
+      // Check containment within working directory (SPEC §12)
       if (!isWithinCwd(resolvedDirectory, ctx.cwd)) {
         return `Permission error: \`${resolvedDirectory}\` is not within the working directory \`${ctx.cwd}\`.`;
       }
@@ -121,45 +120,6 @@ export class GlobTool implements Tool {
   }
 
   private async runRipgrepSearch(directory: string, pattern: string, ctx: CallContext): Promise<string> {
-    const rgPath = await getRgPath();
-
-    return new Promise((resolve, reject) => {
-      const command = ["--files", directory, "--glob", pattern];
-      
-      const child = spawn(rgPath, command, { cwd: ctx.cwd, shell: false });
-      
-      let stdout = "";
-      let stderr = "";
-      
-      child.stdout.on("data", (chunk) => {
-        stdout += chunk;
-      });
-      
-      child.stderr.on("data", (chunk) => {
-        stderr += chunk;
-      });
-
-      // Timeout handling
-      const timeoutHandle = setTimeout(() => {
-        child.kill();
-        reject(new Error(`Tool timed out after ${RG_TIMEOUT}s`));
-      }, RG_TIMEOUT * 1000);
-
-      child.on("close", (code) => {
-        clearTimeout(timeoutHandle);
-
-        // ripgrep exits 1 when no files found - this is not an error for us
-        if (code === 0 || code === 1) {
-          resolve(stdout);
-        } else {
-          reject(new Error(stderr || `Ripgrep exited with code ${code}`));
-        }
-      });
-
-      child.on("error", (err) => {
-        clearTimeout(timeoutHandle);
-        reject(err);
-      });
-    });
+    return await runRipgrep(["--files", directory, "--glob", pattern], ctx.cwd, RG_TIMEOUT);
   }
 }

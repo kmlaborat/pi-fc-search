@@ -9,7 +9,6 @@
   ],
   "scripts": {
     "test": "vitest run --config=vitest.config.ts",
-    "lint": "eslint src/ extensions/ --ext .ts",
     "typecheck": "tsc --noEmit --skipLibCheck --project tests/tsconfig.json"
   },
   "dependencies": {

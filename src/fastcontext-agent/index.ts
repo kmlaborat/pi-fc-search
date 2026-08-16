@@ -3,7 +3,8 @@
  */
 
 import { randomUUID } from "crypto";
-import { dirname, resolve } from "path";
+import { tmpdir } from "os";
+import { join } from "path";
 import { LLMClient } from "./llm.js";
 import { ToolSet } from "./tools/types.js";
 import { ReadTool } from "./tools/read.js";
@@ -16,7 +17,7 @@ export interface RunFastContextAgentOptions {
   cwd: string;                 // absolute path, working directory the agent is scoped to
   maxTurns?: number;           // default 15
   citation?: boolean;          // default false — if true, return only the <final_answer> block
-  trajectoryFile?: string;     // default: `${cwd}/.fastcontext/trajectory_<timestamp>.jsonl`
+  trajectoryFile?: string;     // default: `${os.tmpdir()}/pi-fc-search/trajectory_<timestamp>.jsonl`
   signal?: AbortSignal;
   llm: {
     model: string;
@@ -26,7 +27,6 @@ export interface RunFastContextAgentOptions {
     topP?: number;             // default 0.95
     maxTokens?: number;        // default 32000
   };
-  verbose?: boolean;
 }
 
 /**
@@ -36,11 +36,13 @@ export async function runFastContextAgent(options: RunFastContextAgentOptions): 
   const maxTurns = options.maxTurns ?? 15;
   const citation = options.citation ?? false;
 
-  // Construct trajectory file path if not provided
+  // Construct trajectory file path if not provided.
+  // Written to the OS temp dir (never the searched repository) so the
+  // extension does not pollute user projects with debug artifacts.
   let trajectoryFile = options.trajectoryFile;
   if (!trajectoryFile) {
     const timestamp = new Date().toISOString().replace(/[:.-]/g, "_");
-    trajectoryFile = `${options.cwd}/.fastcontext/trajectory_${timestamp}-${randomUUID().slice(0, 8)}.jsonl`;
+    trajectoryFile = join(tmpdir(), "pi-fc-search", `trajectory_${timestamp}-${randomUUID().slice(0, 8)}.jsonl`);
   }
 
   // Create LLM client with environment variables

@@ -4,7 +4,7 @@
  * are correctly resolved to cwd-relative paths.
  */
 
-import { describe, test, expect } from 'vitest';
+import { describe, test, expect, beforeAll, afterAll } from 'vitest';
 import { resolveDockerMountPath, isWithinCwd } from '../../src/fastcontext-agent/utils.js';
 import { join, resolve, dirname } from "path";
 import * as fs from "fs";

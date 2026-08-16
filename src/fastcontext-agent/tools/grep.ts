@@ -4,10 +4,9 @@
  */
 
 import { resolve } from "path";
-import { spawn } from "child_process";
 import { isWithinCwd, resolveDockerMountPath } from "../utils.js";
-import type { Tool, CallContext, ToolResult } from "./types.js";
-import { getRgPath } from "./rg.js";
+import { MAX_TOOLRUN_TIMEOUT, type Tool, type CallContext, type ToolResult } from "./types.js";
+import { runRipgrep } from "./rg.js";
 
 const GREP_DESCRIPTION = `A powerful search tool built on ripgrep
 Usage:
@@ -162,7 +161,7 @@ export class GrepTool implements Tool {
         resolvedPath = resolve(rgArgs.path!);
       }
 
-      // Validate path containment (SPEC §10) - after correction
+      // Validate path containment (SPEC §12) - after correction
       if (!isWithinCwd(resolvedPath, ctx.cwd)) {
         return `Permission error: \`${resolvedPath}\` is not within the working directory \`${ctx.cwd}\`.`;
       }
@@ -196,8 +195,6 @@ export class GrepTool implements Tool {
   }
 
   private async runRipgrepCommand(rgArgs: RipgrepArgs, ctx: CallContext): Promise<string> {
-    const rgPath = await getRgPath();
-
     // Build command arguments (following Python implementation exactly)
     const command = [rgArgs.pattern];
     
@@ -240,48 +237,22 @@ export class GrepTool implements Tool {
     // Always add --heading --color never
     command.push("--heading", "--color", "never");
 
-    return new Promise((resolve, reject) => {
-      const child = spawn(rgPath, command, { cwd: ctx.cwd, shell: false });
-      
-      let stdout = "";
-      let stderr = "";
-      
-      child.stdout.on("data", (chunk) => {
-        stdout += chunk;
-      });
-      
-      child.stderr.on("data", (chunk) => {
-        stderr += chunk;
-      });
+    try {
+      return await runRipgrep(command, ctx.cwd, MAX_TOOLRUN_TIMEOUT);
+    } catch (error) {
+      let errorMessage = error instanceof Error ? error.message : "Unknown error";
 
-      // Timeout handling (10 seconds)
-      const timeoutHandle = setTimeout(() => {
-        child.kill();
-        reject(new Error("Tool timed out after 10s"));
-      }, 10 * 1000);
+      // SPEC §8.4: timeout results must read `Tool \`Grep\` timed out after 10s.`
+      if (errorMessage.includes("timed out")) {
+        throw new Error(`Tool \`Grep\` timed out after ${MAX_TOOLRUN_TIMEOUT}s.`);
+      }
 
-      child.on("close", (code) => {
-        clearTimeout(timeoutHandle);
-        
-        if (code === 0 || code === 1) {
-          // ripgrep exits with 1 when no matches found, which is not an error for us
-          resolve(stdout);
-        } else {
-          let errorMessage = stderr || `Ripgrep exited with code ${code}`;
-          
-          // Add helpful hint for regex parse errors to help the model adjust its strategy
-          if (errorMessage.includes("regex parse error")) {
-            errorMessage += `\n\n[Hint] The regex pattern may be malformed. Try a simpler pattern without complex grouping or anchors. For example, use "interface" instead of "\\b(\\w+?)\\s+Interface\\{"`;
-          }
-          
-          reject(new Error(errorMessage));
-        }
-      });
+      // Add helpful hint for regex parse errors to help the model adjust its strategy
+      if (errorMessage.includes("regex parse error")) {
+        errorMessage += `\n\n[Hint] The regex pattern may be malformed. Try a simpler pattern without complex grouping or anchors. For example, use "interface" instead of "\\b(\\w+?)\\s+Interface\\{"`;
+      }
 
-      child.on("error", (err) => {
-        clearTimeout(timeoutHandle);
-        reject(err);
-      });
-    });
+      throw new Error(errorMessage);
+    }
   }
 }

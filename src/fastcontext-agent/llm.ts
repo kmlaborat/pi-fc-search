@@ -4,49 +4,9 @@
  */
 
 import { randomUUID } from "crypto";
-import { readFileSync, existsSync } from "fs";
-import { dirname, resolve } from "path";
+import { loadEnvFile } from "./env.js";
 
-/**
- * Load environment variables from package .env file only.
- */
-function loadEnvFile(): void {
-  const path = resolve(dirname(import.meta.url), "..", "..", ".env");
-
-  if (!existsSync(path)) {
-    return;
-  }
-
-  try {
-    const content = readFileSync(path, "utf-8");
-    const lines = content.split(/\r?\n/);
-    
-    for (const line of lines) {
-      const trimmed = line.trim();
-      // Skip empty lines and comments
-      if (!trimmed || trimmed.startsWith("#")) continue;
-      
-      // Parse KEY=VALUE format
-      const eqIndex = trimmed.indexOf("=");
-      if (eqIndex > 0) {
-        const key = trimmed.substring(0, eqIndex).trim();
-        let value = trimmed.substring(eqIndex + 1).trim();
-        
-        // Remove surrounding quotes if present
-        if ((value.startsWith('"') && value.endsWith('"')) || 
-            (value.startsWith("'") && value.endsWith("'"))) {
-          value = value.slice(1, -1);
-        }
-        
-        process.env[key] = value;
-      }
-    }
-  } catch (e) {
-    // Silently fail if .env file can't be read
-  }
-}
-
-// Load environment variables at module initialization
+// Load environment variables at module initialization (shared, idempotent loader)
 loadEnvFile();
 
 export interface Message {
@@ -197,6 +157,16 @@ export class LLMClient {
       return this.extractRawMessage(data);
     } catch (error) {
       if (error instanceof RequestyAPIError) throw error;
+      // Re-throw aborts (timeout / user cancellation) unwrapped so callers can
+      // inspect the linked AbortSignal and map the failure correctly. Wrapping
+      // them in RequestyAPIError previously made timeouts surface as
+      // "LLM API call failed" and silently broke timeout/cancel handling.
+      if (
+        (error instanceof Error && error.name === "AbortError") ||
+        (signal !== undefined && signal.aborted)
+      ) {
+        throw error;
+      }
       throw new RequestyAPIError(`LLM API call failed: ${error instanceof Error ? error.message : "Unknown error"}`);
     }
   }

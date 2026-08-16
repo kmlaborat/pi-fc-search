@@ -9,6 +9,10 @@ import { isWithinCwd, resolveDockerMountPath } from "../utils.js";
 import type { Tool, CallContext, ToolResult } from "./types.js";
 
 export const MAX_LINE = 2000;
+// SPEC §8.1 hard requirement: the upstream *code* enforces 2000 chars/line,
+// even though read.md's prose says "500 characters". The SPEC explicitly
+// mandates porting the code's actual limit and keeping the docstring text
+// unchanged — do not "fix" this to 500.
 export const MAX_LINE_LENGTH = 2000;
 
 // Read tool description (verbatim from Python source)
@@ -113,6 +117,7 @@ export class ReadTool implements Tool {
       const lines = content.split("\n");
 
       // Calculate range
+      // SPEC §8.1: offset is 1-indexed; if undefined or < 0, treat as 1.
       let startLine = 1;
       if (offset !== undefined && offset > 0) {
         startLine = offset;
