@@ -13,15 +13,22 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const TEST_FIXTURES_DIR = resolve(__dirname, "..", "__test_fixtures_docker_path__");
+// The simulated repo dir MUST be named "pi-fc-search" (basename) so the
+// docker-mount strategies that key off the cwd basename are exercised, and
+// the existence verification (SPEC §8.5) finds the real files.
+const REPO_DIR = resolve(TEST_FIXTURES_DIR, "pi-fc-search");
 
 beforeAll(() => {
-  fs.mkdirSync(TEST_FIXTURES_DIR, { recursive: true });
-  fs.mkdirSync(resolve(TEST_FIXTURES_DIR, "src"), { recursive: true });
-  fs.writeFileSync(resolve(TEST_FIXTURES_DIR, "package.json"), '{}', 'utf-8');
-  fs.writeFileSync(resolve(TEST_FIXTURES_DIR, "src", "index.ts"), '// file', 'utf-8');
-  
+  fs.mkdirSync(REPO_DIR, { recursive: true });
+  fs.mkdirSync(resolve(REPO_DIR, "src"), { recursive: true });
+  fs.writeFileSync(resolve(REPO_DIR, "package.json"), '{}', 'utf-8');
+  fs.writeFileSync(resolve(REPO_DIR, "src", "index.ts"), '// file', 'utf-8');
+  // A top-level file with the same name as one inside the subdirectory, to
+  // test strategy 3 (mount-prefix strip) vs. real subdirectory disambiguation
+  fs.writeFileSync(resolve(REPO_DIR, "fake_file.txt"), 'top-level', 'utf-8');
+
   // Create a subdirectory with same name as cwd basename to test false positive correction
-  const subdir = resolve(TEST_FIXTURES_DIR, "pi-fc-search");
+  const subdir = resolve(REPO_DIR, "pi-fc-search");
   fs.mkdirSync(subdir, { recursive: true });
   fs.writeFileSync(resolve(subdir, "fake_file.txt"), 'fake', 'utf-8');
 });
@@ -35,7 +42,7 @@ afterAll(() => {
 });
 
 describe("Docker Mount Path Resolution", () => {
-  const cwd = TEST_FIXTURES_DIR;
+  const cwd = REPO_DIR;
   const cwdBasename = "pi-fc-search"; // simulated repo name for testing
 
   test("should resolve /<repo-name>/path style paths correctly", () => {
@@ -102,19 +109,30 @@ describe("Docker Mount Path Resolution", () => {
     }
   });
 
-  test("should not incorrectly correct when real subdirectory has same name as cwd basename", () => {
-    // The model outputs /pi-fc-search/fake_file.txt
-    // If pi-fc-search/ is a real subdirectory under cwd, should NOT try to strip it
-    // This tests that we don't over-correct
+  test("should strip the mount prefix without doubling the basename (no over-correction)", () => {
+    // The model outputs /pi-fc-search/fake_file.txt. Strategy 2 must be
+    // skipped (first component == cwd basename, KN-002) and strategy 3 must
+    // strip the /pi-fc-search/ prefix — the result must be <cwd>/fake_file.txt,
+    // never <cwd>/pi-fc-search/pi-fc-search/...
     const dockerPath = `/${cwdBasename}/fake_file.txt`;
-    
+
     const result = resolveDockerMountPath(dockerPath, cwd);
     expect(result).toBeDefined();
+    expect(result!.resolved).toBe(resolve(cwd, "fake_file.txt"));
+    expect(isWithinCwd(result!.resolved, cwd)).toBe(true);
+  });
+
+  test("existence gate: unresolvable docker-style paths return null (D-006)", () => {
+    // Non-existent candidates must NOT be accepted by strategies 2-4,
+    // otherwise any absolute path would be swallowed and the SPEC 12
+    // containment Permission error would become unreachable.
+    expect(resolveDockerMountPath("/pi-fc-search/missing.txt", cwd)).toBeNull();
+    expect(resolveDockerMountPath("/missing.txt", cwd)).toBeNull();
   });
 });
 
 describe("Edge Cases for Docker Mount Path Resolution", () => {
-  const cwd = TEST_FIXTURES_DIR;
+  const cwd = REPO_DIR;
   const cwdBasename = "pi-fc-search"; // Same as used in parent describe
 
   test("should handle basename subdirectory correctly without false correction", () => {

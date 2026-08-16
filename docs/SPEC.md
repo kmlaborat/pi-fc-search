@@ -525,6 +525,12 @@ strategies, as follows.
 **Return value:** `{ resolved: string, correction?: string }` on success, `null` if unresolvable.
 If a transformation was applied, include a correction note for tool output.
 
+**Existence verification (required):** Strategies 2–4 must verify that the resolved candidate
+**exists on disk** before accepting it. Without this check, Strategy 2 would swallow *any*
+absolute path (rewriting it into the repo with no containment escape), making the §12
+Permission error unreachable for genuinely outside directories. Strategy 1 needs no existence
+check because it applies no transformation (the tools verify existence themselves).
+
 **Example usage in tools (read.ts pattern):**
 ```typescript
 const absoluteCwd = ctx.cwd;
@@ -1012,6 +1018,7 @@ behavioral-parity invariant, deviations are only valid when explicitly recorded 
 | **D-003** | Aborts of the in-flight LLM `fetch` (timeout or user cancellation) are re-thrown unwrapped from `llm.ts` instead of being converted into a `RequestyAPIError` | Without this, the §6 "Timeout" and "AbortSignal fires mid-turn" rows were unreachable: aborts surfaced as `LLM API call failed` strings and the 120s timeout message never fired. |
 | **D-004** | If the model's final message content is empty or whitespace-only, the agent returns an explicit `[ERROR] The LLM returned an empty response ...` message instead of an empty string | An empty final answer surfaced to the main agent as a mysterious "no response"; typically caused by output truncation at the max-token limit. |
 | **D-005** | `fc_search` fails fast with an explicit `[ERROR]` message when `FASTCONTEXT_ENDPOINT` or `FASTCONTEXT_MODEL` is unset | Without this, an empty base URL produced an opaque `fetch` failure deep in the agent loop after configuration was effectively broken. (Upstream Python had real defaults; this TS port does not, so the check is required.) |
+| **D-006** | `resolveDockerMountPath` strategies 2–4 verify the resolved candidate exists before accepting it (§8.5) | The initial port applied no existence check, so on POSIX any absolute path was rewritten into the repo by Strategy 2 and the §12 containment `Permission error` was unreachable. The existence gate restores the documented contract of the function. |
 
 Known upstream quirks deliberately **preserved** (not deviations, per the parity invariant):
 the `Read` 2000-char line limit vs. `read.md`'s "500 characters" prose (§8.1), negative

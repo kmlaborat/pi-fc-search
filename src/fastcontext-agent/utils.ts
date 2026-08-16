@@ -3,7 +3,7 @@
  * Ported from src/fastcontext/agent/utils.py
  */
 
-import { readFileSync } from "fs";
+import { readFileSync, existsSync } from "fs";
 import { resolve as pathResolve } from "path";
 
 import * as path from "node:path";
@@ -52,9 +52,12 @@ export function resolveDockerMountPath(originalPath: string, cwd: string): { res
     if (firstComponent && firstComponent.toLowerCase() === path.basename(absCwd).toLowerCase()) {
       // Skip this strategy, Strategy 3 will handle it correctly
     } else {
-      // Normal case: strip leading slash and resolve relative to cwd
+      // Normal case: strip leading slash and resolve relative to cwd.
+      // The candidate must EXIST — without this check any absolute path
+      // would be swallowed here and the tools' containment check (SPEC §12)
+      // could never produce its Permission error.
       const strippedResolved = pathResolve(absCwd, stripped);
-      if (isWithinCwd(strippedResolved, absCwd)) {
+      if (isWithinCwd(strippedResolved, absCwd) && existsSync(strippedResolved)) {
         return { resolved: strippedResolved, correction: `Path corrected from ${originalPath} to ${stripped}` };
       }
     }
@@ -70,7 +73,7 @@ export function resolveDockerMountPath(originalPath: string, cwd: string): { res
       const relativePart = originalPath.slice(mountPrefix.length) || ".";
       const mountResolved = pathResolve(absCwd, relativePart);
       
-      if (isWithinCwd(mountResolved, absCwd)) {
+      if (isWithinCwd(mountResolved, absCwd) && existsSync(mountResolved)) {
         return { resolved: mountResolved, correction: `Path corrected from ${originalPath} to ${relativePart}` };
       }
     }
@@ -85,7 +88,7 @@ export function resolveDockerMountPath(originalPath: string, cwd: string): { res
       const remaining = parts.slice(i + 1);
       if (remaining.length > 0) {
         const candidateResolved = pathResolve(absCwd, ...remaining);
-        if (isWithinCwd(candidateResolved, absCwd)) {
+        if (isWithinCwd(candidateResolved, absCwd) && existsSync(candidateResolved)) {
           return { 
             resolved: candidateResolved, 
             correction: `Path corrected from ${originalPath} to ${path.join(...remaining)}` 

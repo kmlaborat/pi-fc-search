@@ -112,23 +112,21 @@ describe("GlobTool", () => {
   });
 
   test("should enforce path containment", async () => {
-    const outsideDir = resolve(__dirname, "..", "__outside_fixture_glob__");
-    fs.mkdirSync(outsideDir);
+    // Use the repo's PARENT directory as the guaranteed-existing, guaranteed-
+    // outside target. Do NOT create "outside" dirs inside the repo: on CI
+    // checkouts (e.g. /home/runner/work/pi-fc-search/pi-fc-search) their path
+    // contains the cwd basename as a component, which makes
+    // resolveDockerMountPath strategy 4 re-resolve it back into the repo.
+    const outsideDir = resolve(__dirname, "..", "..", "..", "..");
 
-    try {
-      const result = await globTool.call(
-        JSON.stringify({
-          directory: outsideDir,
-          pattern: "*"
-        }),
-        { cwd: TEST_FIXTURES_DIR }
-      );
+    const result = await globTool.call(
+      JSON.stringify({
+        directory: outsideDir,
+        pattern: "*"
+      }),
+      { cwd: TEST_FIXTURES_DIR }
+    );
 
-      expect(result).toContain("Permission error");
-    } finally {
-      if (fs.existsSync(outsideDir)) {
-        fs.rmdirSync(outsideDir);
-      }
-    }
+    expect(result).toContain("Permission error");
   });
 });

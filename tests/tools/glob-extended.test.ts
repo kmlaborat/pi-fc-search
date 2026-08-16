@@ -76,26 +76,24 @@ describe("GlobTool - Extended Tests", () => {
 
   describe("Permission error handling", () => {
     test("should return correct permission error message for cwd outside access", async () => {
-      const outsideDir = resolve(__dirname, "..", "__outside_fixture_glob_extended__");
-      fs.mkdirSync(outsideDir);
+      // Use the repo's PARENT directory (exists on every OS, always outside
+      // the repo). Creating "__outside_*__" dirs inside the repo breaks on CI
+      // checkouts like /home/runner/work/pi-fc-search/pi-fc-search, where the
+      // path contains the cwd basename as a component and
+      // resolveDockerMountPath strategy 4 re-resolves it into the repo.
+      const outsideDir = resolve(__dirname, "..", "..", "..", "..");
 
-      try {
-        const result = await globTool.call(
-          JSON.stringify({
-            directory: outsideDir,
-            pattern: "*"
-          }),
-          { cwd: TEST_FIXTURES_DIR }
-        );
+      const result = await globTool.call(
+        JSON.stringify({
+          directory: outsideDir,
+          pattern: "*"
+        }),
+        { cwd: TEST_FIXTURES_DIR }
+      );
 
-        // Verify exact permission error message format from SPEC §8.2
-        expect(result).toContain("Permission error");
-        expect(result).toContain("is not within the working directory");
-      } finally {
-        if (fs.existsSync(outsideDir)) {
-          fs.rmdirSync(outsideDir);
-        }
-      }
+      // Verify exact permission error message format from SPEC §8.2
+      expect(result).toContain("Permission error");
+      expect(result).toContain("is not within the working directory");
     });
   });
 
