@@ -8,6 +8,10 @@ import { isWithinCwd, resolveDockerMountPath } from "../utils.js";
 import { MAX_TOOLRUN_TIMEOUT, type Tool, type CallContext, type ToolResult } from "./types.js";
 import { runRipgrep } from "./rg.js";
 
+// Hard safety cap for an explicit head_limit request (D-010, SPEC §18).
+// See the limit computation in call() for rationale.
+const MAX_GREP_HEAD_LIMIT = 2000;
+
 const GREP_DESCRIPTION = `A powerful search tool built on ripgrep
 Usage:
 - Prefer using Grep for search tasks when you know the exact symbols or strings to search for. Whenever possible, use this tool instead of invoking grep or rg as a terminal command.
@@ -176,10 +180,17 @@ export class GrepTool implements Tool {
         return "No matches found";
       }
 
-      // Apply line limit (100 or custom head_limit)
+      // Apply line limit.
+      // (D-010, SPEC §18) Upstream only honored head_limit when
+      // 0 < head_limit < 100, silently clamping larger explicit requests back
+      // to the default 100 — contradicting the frozen schema description,
+      // which promises head_limit behaves like `| head -N`. Positive
+      // head_limit values are now honored, capped at MAX_GREP_HEAD_LIMIT to
+      // protect the sub-agent's context window (matches the Read tool's
+      // 2000-line MAX_LINE). Default (unspecified) remains 100.
       let limit = 100;
-      if (rgArgs.headLimit !== undefined && rgArgs.headLimit > 0 && rgArgs.headLimit < limit) {
-        limit = rgArgs.headLimit;
+      if (rgArgs.headLimit !== undefined && rgArgs.headLimit > 0) {
+        limit = Math.min(rgArgs.headLimit, MAX_GREP_HEAD_LIMIT);
       }
 
       const lines = output.split("\n");

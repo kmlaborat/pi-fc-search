@@ -484,7 +484,10 @@ should be needed to achieve this. See §13 (Requirement D) for the CI implementa
   - Reject if `path` resolves outside `cwd` (same containment check as Glob, §12).
   - Always append `--heading --color never` to the `rg` invocation.
   - Cap output to **100 lines** by default; if `head_limit` is provided and
-    `0 < head_limit < 100`, use `head_limit` instead. Append
+    `> 0`, use it — capped at **2000 lines** (D-010: upstream only honored
+    `0 < head_limit < 100`, silently clamping larger explicit requests back
+    to 100, which contradicts the frozen field description promising
+    `| head -N` semantics). Append
     `` `Results truncated to first ${limit} lines` `` when truncated.
   - Empty output → `"No matches found"`.
 
@@ -887,7 +890,11 @@ export function loadEnvFile(): void {
           (value.startsWith("'") && value.endsWith("'"))) {
         value = value.slice(1, -1);
       }
-      process.env[key] = value;
+      // D-011: never overwrite a variable already present in the process
+      // environment (standard dotenv precedence — shell/CI exports win).
+      if (process.env[key] === undefined) {
+        process.env[key] = value;
+      }
     }
   } catch (e) {
     // Warn but continue — a broken .env must not break extension startup
@@ -1025,8 +1032,26 @@ behavioral-parity invariant, deviations are only valid when explicitly recorded 
 | **D-007** | The forced final turn (`n_turn == max_turns + 1`) calls the LLM **without the tools array** in addition to the "please provide final answer" injection | Upstream kept tools enabled on the final turn; models that ignored the text injection answered with another tool call, burned the last turn on tool execution, and the agent exited with `No final answer after N turns.` despite having the information. Removing tools structurally forces a text response. The mandated exit message (Requirement B) is unchanged for the rare case where the model still fails to answer. |
 | **D-008** | `normalizeToolCalls` accepts `function.arguments` as a parsed JSON **object** (not only a JSON string) | Some OpenAI-compatible servers return tool-call arguments already parsed. Upstream only handled the string form and silently dropped such arguments to `{}`, making tools fail with missing required parameters. |
 | **D-009** | `isWithinCwd` uses a segment-aware `..` check (`rel !== ".." && !rel.startsWith("..\\") && !rel.startsWith("../")`) instead of the §12 reference `rel.startsWith("..")` | The reference check also rejects legitimate entries whose *name* begins with dots (e.g. `..secret/file.ts` directly inside cwd resolves to `rel = "..secret/file.ts"` and was falsely rejected as an escape). All §12 sibling-prefix and drive-case rejection behavior is preserved. |
+| **D-010** | `Grep` honors any positive `head_limit` (capped at 2000 lines) instead of upstream's `0 < head_limit < 100` window (§8.3) | Upstream `grep.py` clamps explicit `head_limit` values ≥ 100 back to the default 100, silently violating the *frozen* field description (`"equivalent to \| head -N"`), which is the contract the sub-agent model sees. A model requesting 300 lines received 100 with an unexplained truncation note — a direct source of wasted search turns. The 2000-line cap (matching the Read tool's `MAX_LINE`) bounds context-window exposure; the default of 100 for unspecified `head_limit` is unchanged. |
+| **D-011** | The `.env` loader never overwrites a variable already present in the process environment (guard: `process.env[key] === undefined`) | The `.env` loader is a TS-port addition with no upstream counterpart, so standard dotenv precedence applies: an explicitly exported shell/CI variable must win over the package `.env`. Without the guard, `.env` silently shadowed shell configuration, making the documented "shell environment variables" configuration method unreliable. |
 
 Known upstream quirks deliberately **preserved** (not deviations, per the parity invariant):
 the `Read` 2000-char line limit vs. `read.md`'s "500 characters" prose (§8.1), negative
 `offset` being treated as `1` (§8.1), the `count`/`count_matches` output-mode inconsistency
 (§8.3), and the verbatim `glob.md` description text (§9.1).
+
+Quirks evaluated against the upstream source (`manjunathshiva/fastcontext` mirror) and
+deliberately **not** changed:
+
+- `glob.md` claims results are "sorted by modification time", but upstream `glob.py` never
+  sorts — it returns `rg --files` output order. The port matches upstream behavior; the
+  description text is frozen verbatim (§9.1).
+- `system.md` (§9.4) says the query is "denoted by the `<query>` tag", but upstream
+  `agent.py` adds the user prompt as plain content with no `<query>` wrapping. The port
+  matches upstream; the tag reference is stale upstream prose.
+- Upstream `run_rg` builds the command as `[rg, pattern, path, ...options]` with no `--`
+  options-terminator. A flag-shaped grep pattern (starting with `-`) is therefore parsed by
+  `rg` as an unknown option; the resulting error text is returned to the model, which
+  self-corrects. `path`/`directory` arguments are always containment-gated absolute paths
+  and can never be flag-shaped. Adding `--` was considered and rejected: it changes the
+  frozen command shape (§8.2/§8.3) for a rare, self-healing failure mode.

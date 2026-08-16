@@ -21,6 +21,10 @@ function setupTestFixtures(): void {
   const matches = Array.from({ length: 150 }, (_, i) => `export function func${i}() { return "match ${i}"; }`).join("\n");
   fs.writeFileSync(resolve(TEST_FIXTURES_DIR, "many_matches.ts"), matches, "utf-8");
 
+  // Create file with enough matches to exercise the 2000-line head_limit cap (D-010)
+  const bigMatches = Array.from({ length: 2500 }, (_, i) => `export function big${i}() { return "match ${i}"; }`).join("\n");
+  fs.writeFileSync(resolve(TEST_FIXTURES_DIR, "many_matches_big.ts"), bigMatches, "utf-8");
+
   // Create file for output_mode testing
   fs.writeFileSync(resolve(TEST_FIXTURES_DIR, "output_test.ts"), `
 // Test file for output modes
@@ -151,7 +155,7 @@ describe("GrepTool - Extended Tests", () => {
       expect(lines.length).toBeLessThanOrEqual(12); // 10 + truncation message + margin
     });
 
-    test("should use default 100 limit when head_limit >= 100", async () => {
+    test("should honor head_limit >= 100 (D-010, SPEC §18)", async () => {
       const result = await grepTool.call(
         JSON.stringify({
           pattern: "export",
@@ -162,9 +166,29 @@ describe("GrepTool - Extended Tests", () => {
         { cwd: TEST_FIXTURES_DIR }
       );
 
-      // Should use default 100 limit
+      // The fixture has 150 matching lines; an explicit head_limit of 200
+      // must be honored (upstream clamped it back to 100), so all 150 lines
+      // come back and no truncation note is appended.
       const lines = result.split("\n");
-      expect(lines.length).toBeLessThanOrEqual(105);
+      expect(lines.length).toBeGreaterThan(105);
+      expect(result).not.toContain("Results truncated");
+    });
+
+    test("should cap head_limit at 2000 lines (D-010, SPEC §18)", async () => {
+      const result = await grepTool.call(
+        JSON.stringify({
+          pattern: "export",
+          path: join(TEST_FIXTURES_DIR, "many_matches_big.ts"),
+          output_mode: "content",
+          head_limit: 5000
+        }),
+        { cwd: TEST_FIXTURES_DIR }
+      );
+
+      // 2500 matching lines available; head_limit 5000 is capped at 2000.
+      const lines = result.split("\n");
+      expect(lines.length).toBeLessThanOrEqual(2001); // 2000 + truncation note
+      expect(result).toContain("Results truncated to first 2000 lines");
     });
   });
 

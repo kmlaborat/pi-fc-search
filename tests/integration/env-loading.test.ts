@@ -72,7 +72,11 @@ function createEnvLoader(): (envPath: string) => void {
         value = value.slice(1, -1);
       }
       
-      process.env[key] = value;
+      // Must mirror src/fastcontext-agent/env.ts semantics (D-011, SPEC §18):
+      // never overwrite a variable already present in the process environment.
+      if (process.env[key] === undefined) {
+        process.env[key] = value;
+      }
     }
   };
 }
@@ -86,6 +90,11 @@ describe(".env File Loading (SPEC §14)", () => {
 
   beforeAll(() => {
     setupTestFixtures();
+    // The loader never overwrites existing variables (D-011), so start from a
+    // clean slate regardless of what the host environment exports.
+    for (const key of Object.keys(originalEnv)) {
+      delete process.env[key];
+    }
   });
 
   afterAll(() => {
@@ -144,5 +153,17 @@ KEY=value
   test("should not crash when .env file doesn't exist", () => {
     const loadEnv = createEnvLoader();
     expect(() => loadEnv(path.join(TEST_DIR, "nonexistent.env"))).not.toThrow();
+  });
+
+  test("should not overwrite existing environment variables (D-011, SPEC §18)", () => {
+    // Simulate a shell/CI-exported value that must win over the .env file.
+    process.env.FASTCONTEXT_API_KEY = "shell_wins";
+    delete process.env.FASTCONTEXT_ENDPOINT; // unset key must still be loaded
+
+    const loadEnv = createEnvLoader();
+    loadEnv(path.join(TEST_DIR, ".env"));
+
+    expect(process.env.FASTCONTEXT_API_KEY).toBe("shell_wins");
+    expect(process.env.FASTCONTEXT_ENDPOINT).toBe("http://cwd.example.com");
   });
 });
