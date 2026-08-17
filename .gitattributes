@@ -1,2 +1,9 @@
-# Force LF line endings for all text/markdown files (prevents CRLF on Windows)
+# Force LF line endings for all text files (prevents CRLF on Windows).
+# (The repo previously carried CRLF — and one mixed-CRLF — TypeScript/JSON
+# file; all sources are now normalized to LF and pinned here.)
+.gitattributes text eol=lf
 *.md text eol=lf
+*.ts text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.env* text eol=lf
