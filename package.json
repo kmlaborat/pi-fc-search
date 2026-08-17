@@ -5,6 +5,13 @@
   "license": "MIT",
   "description": "Pi extension package for fastcontext repository search",
   "main": "extensions/index.ts",
+  "files": [
+    "extensions",
+    "src",
+    "skills",
+    "README.md",
+    ".env.example"
+  ],
   "keywords": [
     "pi-package"
   ],

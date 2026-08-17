@@ -36,7 +36,9 @@ interface RipgrepArgs {
   pattern: string;
   path?: string;
   glob?: string;
-  outputMode?: "content" | "files_with_matches" | "count";
+  // "count_matches" is the upstream (frozen) alias of "count" — part of the
+  // union so the matching below needs no cast.
+  outputMode?: "content" | "files_with_matches" | "count" | "count_matches";
   beforeContext?: number;
   afterContext?: number;
   context?: number;
@@ -294,7 +296,7 @@ export class GrepTool implements Tool {
       if (rgArgs.lineNumbers) command.push("-n");
     } else if (outputMode === "files_with_matches") {
       command.push("--files-with-matches");
-    } else if (outputMode === "count" || outputMode === "count_matches" as any) {
+    } else if (outputMode === "count" || outputMode === "count_matches") {
       command.push("--count-matches");
     }
 

@@ -257,11 +257,6 @@ export default function (pi: ExtensionAPI) {
     ctx.ui.notify("pi-fc-search extension loaded (in-process mode)", "info");
   });
 
-  // Register session shutdown handler for cleanup
-  pi.on("session_shutdown", async (_event, _ctx) => {
-    // Cleanup resources if needed
-  });
-
   // Register the fastcontext search tool
   pi.registerTool({
     name: "fc_search",

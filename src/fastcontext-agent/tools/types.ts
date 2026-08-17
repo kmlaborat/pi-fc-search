@@ -68,6 +68,32 @@ export class ToolSet {
   }
 
   /**
+   * Run a single tool execution under the per-call timeout (SPEC §8.4).
+   *
+   * Shared by the normalized and message-based call paths so the timeout
+   * behavior (duration, tool name in the message, timer cleanup once the
+   * execution settles) is defined in exactly one place.
+   */
+  private callWithTimeout(name: string, execPromise: Promise<ToolResult>): Promise<ToolResult> {
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutHandle = setTimeout(
+        () => reject(new Error(`Tool \`${name}\` timed out after ${MAX_TOOLRUN_TIMEOUT}s.`)),
+        MAX_TOOLRUN_TIMEOUT * 1000
+      );
+    });
+
+    return Promise.race([
+      // Clear the timer once the execution settles — otherwise a 10s
+      // pending timer accumulates per tool call.
+      execPromise.finally(() => {
+        clearTimeout(timeoutHandle);
+      }),
+      timeoutPromise,
+    ]);
+  }
+
+  /**
    * Execute normalized tool calls derived from raw message objects.
    * 
    * This is the primary call path — it accepts pre-normalized flat structs that are
@@ -80,22 +106,9 @@ export class ToolSet {
     for (const call of normalizedToolCalls) {
       try {
         // SPEC §8.4: timeout ToolResult message includes the tool name
-        let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-        const timeoutPromise = new Promise<ToolResult>((_, reject) => {
-          timeoutHandle = setTimeout(() => reject(new Error(`Tool \`${call.name}\` timed out after ${MAX_TOOLRUN_TIMEOUT}s.`)),
-            MAX_TOOLRUN_TIMEOUT * 1000);
-        });
-
-        // Execute through normalized call path
+        // (via the shared callWithTimeout helper)
         const execPromise = this.executeNormalizedCall(call, this.workDir);
-
-        try {
-          results.push(await Promise.race([execPromise, timeoutPromise]));
-        } finally {
-          // Clear the timer once the race settles — otherwise a 10s pending
-          // timer accumulates per tool call.
-          clearTimeout(timeoutHandle);
-        }
+        results.push(await this.callWithTimeout(call.name, execPromise));
       } catch (error) {
         // Isolate errors - continue with remaining calls
         results.push({
@@ -155,27 +168,16 @@ export class ToolSet {
     
     // Sequential execution - each call waits for the previous to complete
     for (const toolCall of message.tool_calls) {
+      const call = toolCall as FunctionCall;
       try {
-        // Create timeout promise (SPEC §8.4: message includes the tool name)
-        let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-        const timeoutPromise = new Promise<ToolResult>((_, reject) => {
-          timeoutHandle = setTimeout(() => reject(new Error(`Tool \`${(toolCall as FunctionCall).function.name}\` timed out after ${MAX_TOOLRUN_TIMEOUT}s.`)),
-            MAX_TOOLRUN_TIMEOUT * 1000);
-        });
-        
-        // Execute tool call
-        const execPromise = this.executeSingleCall(toolCall as FunctionCall);
-        
-        try {
-          results.push(await Promise.race([execPromise, timeoutPromise]));
-        } finally {
-          // Clear the timer once the race settles (see callNormalized above).
-          clearTimeout(timeoutHandle);
-        }
+        // Per-call timeout with the tool name in the message (SPEC §8.4)
+        // via the shared callWithTimeout helper.
+        const execPromise = this.executeSingleCall(call);
+        results.push(await this.callWithTimeout(call.function.name, execPromise));
       } catch (error) {
         // Isolate errors - continue with remaining calls
         results.push({
-          toolCallId: (toolCall as FunctionCall).id,
+          toolCallId: call.id,
           output: error instanceof Error ? error.message : "Unknown error",
           failed: true
         });

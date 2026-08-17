@@ -3,7 +3,6 @@
  * Ported from src/fastcontext/agent/agent.py
  */
 
-import { randomUUID } from "crypto";
 import type { LLMClient, NormalizedToolCall } from "./llm.js";
 import { normalizeToolCalls } from "./llm.js";
 import { CancelledError, LLMAPIError } from "./errors.js";
@@ -27,8 +26,6 @@ export class Agent {
   toolset: ToolSet;
   context: Context;
   workDir: string;
-  nTurn: number;
-  runId: string;
 
   constructor(
     name: string,
@@ -43,8 +40,6 @@ export class Agent {
     this.toolset = toolset;
     this.context = new Context(trajectoryFile);
     this.workDir = workDir;
-    this.nTurn = 0;
-    this.runId = randomUUID().slice(0, 12);
   }
 
   async run(options: AgentRunOptions): Promise<string> {
@@ -76,7 +71,6 @@ export class Agent {
       }
 
       nTurn++;
-      this.nTurn = nTurn;
 
       // Report progress (extension surfaces this via tool updates)
       onTurn?.(nTurn, maxTurns);
