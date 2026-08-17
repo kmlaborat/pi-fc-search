@@ -85,6 +85,10 @@ export FASTCONTEXT_ENDPOINT="https://your-fastcontext-endpoint.com"
 export FASTCONTEXT_MODEL="FastContext-RL"
 ```
 
+> **Note**: If a `.env` file exists in the installed package, its values take
+> precedence over shell environment variables (SPEC §15/D-012). Shell exports
+> only apply to variables not defined in that `.env` file.
+
 ### 4. Dependencies
 
 This extension requires exactly one npm dependency:
@@ -141,7 +145,7 @@ src/api/routes.py:110-140
 
 ### Environment Variables
 
-The extension reads the following environment variables from the `.env` file or shell environment (shell variables win over `.env`, SPEC §15/D-011):
+The extension reads the following environment variables from the `.env` file at the installed package root or the shell environment (the `.env` file wins over shell variables, SPEC §15/D-012):
 
 | Variable | Description | Required | Default |
 |----------|-------------|----------|---------|
@@ -280,7 +284,7 @@ This extension complies with the following SPEC requirements:
 - **Cancellation**: Cooperative cancellation via AbortSignal (SPEC §4.10)
 - **Model-agnostic**: Designed for general small agentic models (SPEC §19)
 - **Tests**: Comprehensive test suite with vitest
-- **SPEC Version**: Compliant with docs/SPEC.md incl. §17 known issues, §18 documented deviations (D-001 to D-011), and §19 v3 general-model redesign
+- **SPEC Version**: Compliant with docs/SPEC.md incl. §17 known issues, §18 documented deviations (D-001 to D-012, D-011 superseded by D-012), and §19 v3 general-model redesign
 
 > **Verification**: Full test suite: `npm test` and `npm run typecheck`. The v3 redesign surfaces (prompt, descriptions, sampling/timeout configuration) are covered by `tests/integration/prompt.test.ts` and `tests/integration/config.test.ts`.
 

@@ -72,11 +72,10 @@ function createEnvLoader(): (envPath: string) => void {
         value = value.slice(1, -1);
       }
       
-      // Must mirror src/fastcontext-agent/env.ts semantics (D-011, SPEC §18):
-      // never overwrite a variable already present in the process environment.
-      if (process.env[key] === undefined) {
-        process.env[key] = value;
-      }
+      // Must mirror src/fastcontext-agent/env.ts semantics (D-012, SPEC §18):
+      // the .env file is the source of truth and overrides variables already
+      // present in the process environment.
+      process.env[key] = value;
     }
   };
 }
@@ -90,8 +89,9 @@ describe(".env File Loading (SPEC §14)", () => {
 
   beforeAll(() => {
     setupTestFixtures();
-    // The loader never overwrites existing variables (D-011), so start from a
-    // clean slate regardless of what the host environment exports.
+    // Start from a clean slate regardless of what the host environment
+    // exports so the assertions stay deterministic (the loader itself now
+    // overwrites existing variables, D-012).
     for (const key of Object.keys(originalEnv)) {
       delete process.env[key];
     }
@@ -155,15 +155,15 @@ KEY=value
     expect(() => loadEnv(path.join(TEST_DIR, "nonexistent.env"))).not.toThrow();
   });
 
-  test("should not overwrite existing environment variables (D-011, SPEC §18)", () => {
-    // Simulate a shell/CI-exported value that must win over the .env file.
-    process.env.FASTCONTEXT_API_KEY = "shell_wins";
+  test("should overwrite existing environment variables (.env wins, D-012, SPEC §18)", () => {
+    // Simulate a stale shell/CI-exported value that the .env file must replace.
+    process.env.FASTCONTEXT_API_KEY = "shell_old";
     delete process.env.FASTCONTEXT_ENDPOINT; // unset key must still be loaded
 
     const loadEnv = createEnvLoader();
     loadEnv(path.join(TEST_DIR, ".env"));
 
-    expect(process.env.FASTCONTEXT_API_KEY).toBe("shell_wins");
+    expect(process.env.FASTCONTEXT_API_KEY).toBe("cwd_key");
     expect(process.env.FASTCONTEXT_ENDPOINT).toBe("http://cwd.example.com");
   });
 });

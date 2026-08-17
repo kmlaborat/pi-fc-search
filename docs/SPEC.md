@@ -894,11 +894,9 @@ export function loadEnvFile(): void {
           (value.startsWith("'") && value.endsWith("'"))) {
         value = value.slice(1, -1);
       }
-      // D-011: never overwrite a variable already present in the process
-      // environment (standard dotenv precedence — shell/CI exports win).
-      if (process.env[key] === undefined) {
-        process.env[key] = value;
-      }
+      // D-012: the package .env is the single source of truth and overrides
+      // variables already present in the process environment (supersedes D-011).
+      process.env[key] = value;
     }
   } catch (e) {
     // Warn but continue — a broken .env must not break extension startup
@@ -1049,7 +1047,8 @@ behavioral-parity invariant, deviations are only valid when explicitly recorded 
 | **D-008** | `normalizeToolCalls` accepts `function.arguments` as a parsed JSON **object** (not only a JSON string) | Some OpenAI-compatible servers return tool-call arguments already parsed. Upstream only handled the string form and silently dropped such arguments to `{}`, making tools fail with missing required parameters. |
 | **D-009** | `isWithinCwd` uses a segment-aware `..` check (`rel !== ".." && !rel.startsWith("..\\") && !rel.startsWith("../")`) instead of the §12 reference `rel.startsWith("..")` | The reference check also rejects legitimate entries whose *name* begins with dots (e.g. `..secret/file.ts` directly inside cwd resolves to `rel = "..secret/file.ts"` and was falsely rejected as an escape). All §12 sibling-prefix and drive-case rejection behavior is preserved. |
 | **D-010** | `Grep` honors any positive `head_limit` (capped at 2000 lines) instead of upstream's `0 < head_limit < 100` window (§8.3) | Upstream `grep.py` clamps explicit `head_limit` values ≥ 100 back to the default 100, silently violating the *frozen* field description (`"equivalent to \| head -N"`), which is the contract the sub-agent model sees. A model requesting 300 lines received 100 with an unexplained truncation note — a direct source of wasted search turns. The 2000-line cap (matching the Read tool's `MAX_LINE`) bounds context-window exposure; the default of 100 for unspecified `head_limit` is unchanged. |
-| **D-011** | The `.env` loader never overwrites a variable already present in the process environment (guard: `process.env[key] === undefined`) | The `.env` loader is a TS-port addition with no upstream counterpart, so standard dotenv precedence applies: an explicitly exported shell/CI variable must win over the package `.env`. Without the guard, `.env` silently shadowed shell configuration, making the documented "shell environment variables" configuration method unreliable. |
+| **D-011** | ~~The `.env` loader never overwrites a variable already present in the process environment (guard: `process.env[key] === undefined`)~~ *(superseded by D-012)* | The `.env` loader is a TS-port addition with no upstream counterpart, so standard dotenv precedence applies: an explicitly exported shell/CI variable must win over the package `.env`. Without the guard, `.env` silently shadowed shell configuration, making the documented "shell environment variables" configuration method unreliable. |
+| **D-012** | The `.env` loader unconditionally overwrites variables already present in the process environment — the installed package `.env` is the single source of truth | The package is deployed as an installed extension whose `.env` lives at the install root, outside any user repository, so it cannot be accidentally committed. Making the installed `.env` win over shell exports eliminates a real failure mode: a stale `FASTCONTEXT_MODEL` left in a shell profile silently shadowed the configured model and pointed the tool at a different (cold, slow) server model. The package is low-churn and its configuration (including credentials) is intended to live in the installed `.env`, not in shell profiles. |
 
 Known upstream quirks deliberately **preserved** (not deviations, per the parity invariant):
 the `Read` 2000-char line limit vs. `read.md`'s "500 characters" prose (§8.1), negative
@@ -1079,7 +1078,7 @@ deliberately **not** changed:
 **Status:** active. This section supersedes the upstream-parity framing of §4.6, §8
 (descriptions only) and §9 for the surfaces listed below. Everything not listed here
 (§4.1–4.5, §4.7–4.10, tool behavior in §8.1–8.4, §11–14, and the deviation records
-D-001…D-011) remains in force unchanged.
+D-001…D-012, with D-011 superseded by D-012) remains in force unchanged.
 
 ### 19.1 Rationale
 

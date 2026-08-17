@@ -44,15 +44,12 @@ export function loadEnvFile(): void {
         value = value.slice(1, -1);
       }
 
-      // (D-011, SPEC §18) Standard dotenv precedence: a variable already
-      // present in the process environment (e.g. exported in the shell or
-      // set by CI) wins over the package .env file. Without this guard the
-      // .env silently shadowed explicit shell configuration, making the
-      // documented "shell environment variables" configuration method
-      // unreliable.
-      if (process.env[key] === undefined) {
-        process.env[key] = value;
-      }
+      // (D-012, SPEC §18) The installed package .env is the single source of
+      // truth: values here override variables already present in the process
+      // environment (the reverse of standard dotenv precedence; supersedes
+      // D-011). Stale shell/CI exports must not silently shadow the model and
+      // endpoint the user configured in the package .env.
+      process.env[key] = value;
     }
   } catch (error) {
     // Warn but continue — a broken .env must not break extension startup
