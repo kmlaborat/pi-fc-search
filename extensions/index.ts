@@ -9,6 +9,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import * as path from "path";
 import { runFastContextAgent, RunFastContextAgentOptions } from "../src/fastcontext-agent/index.js";
 import { loadEnvFile } from "../src/fastcontext-agent/env.js";
+import { loadFastContextConfig } from "../src/fastcontext-agent/config.js";
+import type { FastContextEnvConfig } from "../src/fastcontext-agent/config.js";
 
 // Tool input schema (JSON Schema format - zero external dependencies)
 const SearchToolSchema = {
@@ -47,25 +49,20 @@ export interface SearchToolInput {
   use_citation: boolean;
 }
 
-// Timeout for agent execution
-const TIMEOUT_SECONDS = 120;
-
 // ============================================================================
 // .env Loading
 // ============================================================================
 
 // Load environment variables at module initialization (shared, idempotent
-// loader in src/fastcontext-agent/env.ts). Must run before the constants
-// below are read.
+// loader in src/fastcontext-agent/env.ts). Must run before the config below
+// is read.
 loadEnvFile();
 
 // ============================================================================
-// Configuration from .env
+// Configuration from .env / shell environment (SPEC §15, §19 v3)
 // ============================================================================
 
-const FASTCONTEXT_API_KEY = process.env.FASTCONTEXT_API_KEY || "";
-const FASTCONTEXT_ENDPOINT = process.env.FASTCONTEXT_ENDPOINT || "";
-const FASTCONTEXT_MODEL = process.env.FASTCONTEXT_MODEL || "";
+const FC_CONFIG: FastContextEnvConfig = loadFastContextConfig();
 
 /**
  * Validates tool input parameters
@@ -137,10 +134,12 @@ async function executeAgent(
   // Create controller for timeout/cancellation coordination
   const controller = new AbortController();
   
-  // Setup timeout that aborts the controller
+  // Setup timeout that aborts the controller (SPEC §19: configurable via
+  // FASTCONTEXT_TIMEOUT_SECONDS — CPU-served local models need far more
+  // than the historical 120s default).
   const timeoutId = setTimeout(() => {
     controller.abort(new Error("timeout"));
-  }, TIMEOUT_SECONDS * 1000);
+  }, FC_CONFIG.timeoutSeconds * 1000);
   
   // Link user cancellation signal to controller
   if (signal) {
@@ -157,15 +156,15 @@ async function executeAgent(
   // Fail fast with an actionable message when configuration is missing.
   // Without this, an empty base URL produces a cryptic fetch error after
   // the agent has already burned turns on a dead endpoint.
-  if (!FASTCONTEXT_ENDPOINT) {
+  if (!FC_CONFIG.baseUrl) {
     return "[ERROR] FASTCONTEXT_ENDPOINT is not configured. Set it in pi-fc-search/.env (see .env.example) or as a shell environment variable.";
   }
-  if (!FASTCONTEXT_MODEL) {
+  if (!FC_CONFIG.model) {
     return "[ERROR] FASTCONTEXT_MODEL is not configured. Set it in pi-fc-search/.env (see .env.example) or as a shell environment variable.";
   }
 
-  // The constants above were already resolved from .env + process.env at
-  // module load (SPEC §15.3 mapping); fail-fast checks guarantee they are set.
+  // Resolved from .env + process.env at module load (SPEC §15); fail-fast
+  // checks above guarantee endpoint and model are set.
   const options: RunFastContextAgentOptions = {
     prompt,
     cwd,
@@ -173,9 +172,11 @@ async function executeAgent(
     citation: useCitation,
     signal: controller.signal,
     llm: {
-      model: FASTCONTEXT_MODEL,
-      apiKey: FASTCONTEXT_API_KEY,
-      baseUrl: FASTCONTEXT_ENDPOINT,
+      model: FC_CONFIG.model,
+      apiKey: FC_CONFIG.apiKey,
+      baseUrl: FC_CONFIG.baseUrl,
+      temperature: FC_CONFIG.temperature,
+      maxTokens: FC_CONFIG.maxTokens,
     }
   };
 
@@ -190,9 +191,10 @@ async function executeAgent(
 
     // Handle timeout (covers the fetch AbortError, the agent's per-turn
     // abort check, and any other error raised after the timer fired).
-    // Message text is the exact SPEC §6 string — do not append extra prose.
+    // (SPEC §19 v3) the message now reports the configured timeout instead
+    // of the historical hard-coded 120s.
     if (controller.signal.aborted && reasonMessage === "timeout") {
-      return "[ERROR] pi-fc-search execution timeout exceeded (120 seconds).";
+      return `[ERROR] pi-fc-search execution timeout exceeded (${FC_CONFIG.timeoutSeconds} seconds).`;
     }
 
     // Handle user cancellation

@@ -6,6 +6,7 @@ import { randomUUID } from "crypto";
 import { tmpdir } from "os";
 import { join } from "path";
 import { LLMClient } from "./llm.js";
+import { DEFAULT_TEMPERATURE } from "./config.js";
 import { ToolSet } from "./tools/types.js";
 import { ReadTool } from "./tools/read.js";
 import { GlobTool } from "./tools/glob.js";
@@ -23,7 +24,9 @@ export interface RunFastContextAgentOptions {
     model: string;
     apiKey: string;
     baseUrl: string;
-    temperature?: number;      // default 1.0
+    temperature?: number;      // default 0.2 (SPEC §19 v3: 1.0 was the retired
+                               // MS-model default; general small agentic models
+                               // call tools more reliably at low temperature)
     topP?: number;             // default 0.95
     maxTokens?: number;        // default 32000
   };
@@ -48,7 +51,7 @@ export async function runFastContextAgent(options: RunFastContextAgentOptions): 
   // Create LLM client with environment variables
   const llmClient = new LLMClient(options.llm.model, options.llm.apiKey, options.llm.baseUrl, {
     max_tokens: options.llm.maxTokens ?? 32000,
-    temperature: options.llm.temperature ?? 1.0,
+    temperature: options.llm.temperature ?? DEFAULT_TEMPERATURE,
     top_p: options.llm.topP ?? 0.95
   });
 

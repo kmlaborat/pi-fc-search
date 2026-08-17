@@ -9,10 +9,9 @@ import { isWithinCwd, resolveDockerMountPath } from "../utils.js";
 import type { Tool, CallContext, ToolResult } from "./types.js";
 
 export const MAX_LINE = 2000;
-// SPEC §8.1 hard requirement: the upstream *code* enforces 2000 chars/line,
-// even though read.md's prose says "500 characters". The SPEC explicitly
-// mandates porting the code's actual limit and keeping the docstring text
-// unchanged — do not "fix" this to 500.
+// The code enforces 2000 chars/line (upstream behavior, SPEC §8.1). The
+// tool description now matches the code (SPEC §19 v3); v2 had kept the
+// stale upstream "500 characters" prose verbatim.
 export const MAX_LINE_LENGTH = 2000;
 
 // Read tool description (verbatim from Python source)
@@ -24,7 +23,7 @@ Usage:
 - Lines in the output are numbered starting at 1, using following format: LINE_NUMBER|LINE_CONTENT
 - You have the capability to call multiple tools in a single response. It is always better to speculatively read multiple files as a batch that are potentially useful.
 - If you read a file that exists but has empty contents you will receive 'File is empty.'
-- Any lines longer than 500 characters will be truncated to 500 characters with '...' appended to the end.
+- Any lines longer than 2000 characters will be truncated to 2000 characters with '...' appended to the end. (SPEC §19 v3: the v2 text kept the stale upstream "500" figure; the code has always enforced 2000.)
 - Any file content that exceeds the 2000 lines will be truncated to 2000 lines with '...' appended to the end.`;
 
 export class ReadTool implements Tool {

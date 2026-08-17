@@ -5,6 +5,7 @@
 
 import { randomUUID } from "crypto";
 import { loadEnvFile } from "./env.js";
+import { DEFAULT_TEMPERATURE } from "./config.js";
 
 // Load environment variables at module initialization (shared, idempotent loader)
 loadEnvFile();
@@ -117,7 +118,7 @@ export class LLMClient {
     this.apiKey = apiKey;
     this.baseUrl = baseUrl;
     this.maxTokens = options?.max_tokens ?? 32000;
-    this.temperature = options?.temperature ?? 1.0;
+    this.temperature = options?.temperature ?? DEFAULT_TEMPERATURE;
     this.topP = options?.top_p ?? 0.95;
   }
 

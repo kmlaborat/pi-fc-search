@@ -9,11 +9,16 @@ import { isWithinCwd, resolveDockerMountPath } from "../utils.js";
 import type { Tool, CallContext, ToolResult } from "./types.js";
 import { runRipgrep } from "./rg.js";
 
+// (SPEC §19 v3) v2 kept the upstream glob.md text verbatim, which (a) claimed
+// results are "sorted by modification time" — upstream never sorted — and
+// (b) told the model to "use the Agent tool instead" — a tool that does not
+// exist in this toolset; a general model that followed the advice burned a
+// turn on `Tool 'Agent' not found.` Both lines are removed; the real
+// 100-result cap and filesystem order are stated instead.
 const GLOB_DESCRIPTION = `- Fast file pattern matching tool that works with any codebase size
 - Supports glob patterns like "**/*.js" or "src/**/*.ts"
-- Returns matching file paths sorted by modification time
+- Returns matching file paths (up to 100 results, in filesystem order)
 - Use this tool when you need to find files by name patterns
-- When you are doing an open ended search that may require multiple rounds of globbing and grepping, use the Agent tool instead
 - You have the capability to call multiple tools in a single response. It is always better to speculatively perform multiple searches as a batch that are potentially useful.`;
 
 // Ripgrep timeout (10 seconds)

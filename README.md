@@ -4,13 +4,15 @@ Pi coding agent extension package for fastcontext repository search.
 
 ## Overview
 
-This package integrates Microsoft's fastcontext tool with the pi coding agent, enabling efficient codebase exploration without consuming excessive context tokens. The implementation is ported from the Python version to TypeScript for in-process execution (no external Python process required).
+This package integrates fastcontext-style repository search with the pi coding agent, enabling efficient codebase exploration without consuming excessive context tokens. The implementation is written in TypeScript for in-process execution (no external Python process required).
 
-### Ported From
+**Design target (v3):** any **general small agentic model** served over an OpenAI-compatible `/chat/completions` endpoint with tool calling — including CPU-served local models. The sub-agent is deliberately read-only (Read/Glob/Grep scoped to the working directory) and model-agnostic; see [docs/SPEC.md §19](docs/SPEC.md#19-v3-general-model-redesign).
 
-- **Original Repository**: [manjunathshiva/fastcontext](https://github.com/manjunathshiva/fastcontext)
-- This is a preserved mirror of Microsoft's removed FastContext repo with fixes for local serving on macOS via mlx-lm
-- The TypeScript implementation maintains behavioral parity with the original Python version while running directly within the pi agent environment
+### Origin
+
+- **Inspired by / originally ported from**: [manjunathshiva/fastcontext](https://github.com/manjunathshiva/fastcontext), a preserved mirror of Microsoft's removed FastContext repo (arXiv:2606.14066)
+- v1/v2 maintained behavioral parity with that Python implementation because the design target was Microsoft's FastContext model. That model was removed from all official repositories and is **no longer the design target** (SPEC §19): prompts, tool descriptions, and sampling defaults were redesigned for general small agentic models, while the tool set, path containment, agent loop, and defensive layers (including Docker-mount path normalization) were retained
+- The package still works with community-mirrored MS FastContext models if you prefer them, but no code path assumes them
 
 ## Features
 
@@ -139,28 +141,44 @@ src/api/routes.py:110-140
 
 ### Environment Variables
 
-The extension reads the following environment variables from `.env` file or shell environment:
+The extension reads the following environment variables from the `.env` file or shell environment (shell variables win over `.env`, SPEC §15/D-011):
 
 | Variable | Description | Required | Default |
 |----------|-------------|----------|---------|
-| `FASTCONTEXT_API_KEY` | API key for LLM calls | No* | (uses fastcontext default) |
-| `FASTCONTEXT_ENDPOINT` | Base URL of the fastcontext endpoint | No | (uses fastcontext default) |
-| `FASTCONTEXT_MODEL` | LLM model to use | No* | (uses fastcontext default) |
+| `FASTCONTEXT_API_KEY` | API key for LLM calls | No | *(empty — fine for local servers that ignore auth)* |
+| `FASTCONTEXT_ENDPOINT` | Base URL of any OpenAI-compatible endpoint (`POST /chat/completions` with tool calling) | **Yes** | — |
+| `FASTCONTEXT_MODEL` | Model name to use | **Yes** | — |
+| `FASTCONTEXT_TEMPERATURE` | Sampling temperature (0–2) | No | `0.2` |
+| `FASTCONTEXT_MAX_TOKENS` | Max completion tokens per LLM call | No | `32000` |
+| `FASTCONTEXT_TIMEOUT_SECONDS` | Total execution timeout (integer ≥ 5). Raise for CPU-served local models | No | `120` |
 
-*Optional when using fastcontext defaults. Set these variables to override the default configuration.
+`FASTCONTEXT_ENDPOINT` and `FASTCONTEXT_MODEL` must be set; the tool fails fast with an actionable error if either is missing (SPEC §18/D-005). Invalid numeric values for the sampling/timeout variables warn and fall back to the defaults.
 
-### Model Selection Recommendation
+### Model Selection
 
-Based on comparative verification across multiple query types, the following priority order is recommended:
+Any general small agentic model with reliable tool calling works. Pick the smallest one your hardware can serve comfortably — the sub-agent loop (up to `max_turns` LLM calls) multiplies per-call latency.
 
-1. **Most Recommended**: `InternScience/Agents-A1-4B` (or equivalent general-purpose small model with tool calling support). Not a FastContext-dedicated model, but verified to outperform in honesty of exploration (does not fabricate results for non-existent files) and accuracy across all tested queries.
-2. **Second Choice**: FastContext-SFT models (e.g., `FastContext-1.0-4B-SFT`). Can self-correct their exploration strategy and return accurate answers based on actually read file contents, though occasional exploration meandering may occur.
-3. **Not Recommended**: FastContext-RL models show strong tendency to persistently retry non-existent paths up to `maxTurns` iterations, often returning fabricated `<final_answer>` content about files that were never actually accessed.
+| Profile | Model | Serving | Notes |
+|---------|-------|---------|-------|
+| **Recommended (verified)** | `InternScience/Agents-A1-4B` | mlx-lm / vLLM / llama.cpp | Verified across query types: honest exploration (does not fabricate results for non-existent files), accurate answers, good parallel tool calling (SPEC KN-005) |
+| **CPU-friendly** | `LiquidAI/LFM2.5-2.6B` | llama.cpp / vLLM | Small enough for CPU inference. **Set `FASTCONTEXT_TIMEOUT_SECONDS=600`** (or higher) — CPU latency makes the 120s default unreachable. Keep `FASTCONTEXT_TEMPERATURE` low (default 0.2) |
+| **General** | any OpenAI-compatible tool-calling model | any server | If the model wanders or retries failed paths, lower `max_turns` in the `fc_search` call; see KN-001 |
 
 Example recommended configuration:
 ```
 FASTCONTEXT_MODEL="InternScience/Agents-A1-4B"
 ```
+
+<details>
+<summary>Legacy: community-mirrored Microsoft FastContext models (optional)</summary>
+
+If you intentionally use the community-mirrored MS models instead of a general model:
+
+1. FastContext-SFT models (e.g., `FastContext-1.0-4B-SFT`) self-correct their exploration strategy and return accurate answers, with occasional meandering.
+2. FastContext-RL models are **not recommended**: they persistently retry non-existent paths up to `maxTurns` and often return fabricated `<final_answer>` content (SPEC KN-003).
+
+The package's Docker-mount path normalization (SPEC §8.5) exists primarily for these models; it is harmless with general models.
+</details>
 
 #### Sampling Parameter Notes for Qwen3.5-based Models
 
@@ -190,7 +208,7 @@ The extension handles the following error cases:
 | No Matching Code Found | Search returned no results | Refine search query |
 | LLM API Error | Upstream API failure | Check API configuration |
 | Ripgrep binary missing | Bundled binary unavailable | Ensure @vscode/ripgrep is installed |
-| Timeout | Operation exceeds 120 seconds | Simplify query or retry |
+| Timeout | Operation exceeds `FASTCONTEXT_TIMEOUT_SECONDS` (default 120s) | Raise the timeout for slow/CPU models, simplify query, or retry |
 | User Cancellation | Tool call cancelled during execution | Retry if needed |
 
 ### Troubleshooting: macOS Gatekeeper on the bundled `rg` binary
@@ -258,19 +276,21 @@ This extension complies with the following SPEC requirements:
 - **In-process Execution**: No external Python CLI spawn
 - **Output Pass-through**: Final answers returned without wrapper-level truncation
 - **Error Handling**: All error types implemented (SPEC §6)
-- **Timeout**: 120 second timeout with AbortSignal coordination
+- **Timeout**: Configurable timeout (`FASTCONTEXT_TIMEOUT_SECONDS`, default 120s) with AbortSignal coordination
 - **Cancellation**: Cooperative cancellation via AbortSignal (SPEC §4.10)
+- **Model-agnostic**: Designed for general small agentic models (SPEC §19)
 - **Tests**: Comprehensive test suite with vitest
-- **SPEC Version**: Compliant with docs/SPEC.md (Revision: Native TypeScript Sub-Agent, incl. section 17 documented deviations)
+- **SPEC Version**: Compliant with docs/SPEC.md incl. §17 known issues, §18 documented deviations (D-001 to D-011), and §19 v3 general-model redesign
 
-> **Verification**: Implementation audited against SPEC sections 1-16. All mandated message texts, limits, and schemas match; the five intentional hardening deviations are recorded in SPEC section 17 (D-001 to D-005). Full test suite: `npm test` (94 passed, 2 skipped) and `npm run typecheck`.
+> **Verification**: Full test suite: `npm test` and `npm run typecheck`. The v3 redesign surfaces (prompt, descriptions, sampling/timeout configuration) are covered by `tests/integration/prompt.test.ts` and `tests/integration/config.test.ts`.
 
 ## Known Issues & TODO
 
 ### Known Issues
 
 1. **Halted path exploration**: The model may hallucinate non-existent directory names from file names (e.g., `duet.json` → `duet-js/`) and repeat failed accesses for 10+ turns. 
-   - **Proposed mitigation**: Add hint with top-level directory listing after N consecutive failures on same path.
+   - **Mitigated in v3 (prompt-level)**: the v3 system prompt (SPEC §19 C-3) explicitly instructs models to verify a file exists (Glob/Grep) before Read — verified effective with `Agents-A1-4B`.
+   - **Proposed programmatic mitigation (still TODO)**: add a hint with the top-level directory listing after N consecutive failures on the same path.
 
 ### TODO
 
@@ -279,10 +299,11 @@ This extension complies with the following SPEC requirements:
 
 ## Acknowledgements
 
-This package ports the following upstream repository:
+This package was originally ported from, and remains inspired by:
 - [manjunathshiva/fastcontext](https://github.com/manjunathshiva/fastcontext)
   - Preserved mirror of Microsoft's removed FastContext repo (arXiv:2606.14066)
   - With fixes for local serving on macOS via mlx-lm
+- The v3 redesign (SPEC §19) targets general small agentic models; the MS model is no longer a design dependency
 
 ## License
 

@@ -19,10 +19,6 @@ export function loadSystemPrompt(workDir: string): string {
     .replace(/\r\n/g, "\n")
     .trim();
 
-  // Collect substitution variables
-  const osKind = process.platform; // "win32", "darwin", "linux" etc.
-  const shellName = process.env.SHELL || "bash"; // fallback for Windows where env is typically unset
-  
   // Get workspace directory listing (top-level entries only, like Python's os.listdir)
   let workDirLs = "";
   try {
@@ -32,10 +28,11 @@ export function loadSystemPrompt(workDir: string): string {
     workDirLs = "[unable to read directory]";
   }
 
-  // Perform ${VAR} substitution (simple string replace, not regex)
+  // Perform ${VAR} substitution (simple string replace, not regex).
+  // (SPEC §19 v3) the v2 template also substituted OS_KIND and SHELL_NAME;
+  // both were informational leftovers from the upstream prompt and were
+  // dropped because the sub-agent cannot execute shell commands.
   return template
-    .replace(/\${OS_KIND}/g, osKind)
-    .replace(/\${SHELL_NAME}/g, shellName)
     .replace(/\${WORK_DIR}/g, workDir)
     .replace(/\${WORK_DIR_LS}/g, workDirLs);
 }

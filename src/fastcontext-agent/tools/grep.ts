@@ -20,7 +20,7 @@ Usage:
 - Output modes: "content" shows matching lines (default), "files_with_matches" shows only file paths, "count" shows match counts
 - Pattern syntax: Uses ripgrep (not grep) - literal braces need escaping (use interface\\{\\} to find interface{} in Go code)
 - Multiline matching: By default patterns match within single lines only. For cross-line patterns like struct \\{[\\s\\S]*?field, use multiline: true
-- Results are capped to several thousand output lines for responsiveness; when truncation occurs, the results report "at least" counts, but are otherwise accurate.
+- Results are capped to 100 output lines by default; pass head_limit (up to 2000) to request more. When truncation occurs, the output ends with a "Results truncated to first N lines" note. (SPEC §19 v3: the v2 text claimed "several thousand" lines, contradicting the actual 100/2000 caps.)
 - Content output formatting closely follows ripgrep output format: '-' for context lines, ':' for match lines, and all context/match lines below each file group.`;
 
 // Ripgrep arguments interface

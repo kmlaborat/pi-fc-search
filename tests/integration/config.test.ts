@@ -1,0 +1,89 @@
+/**
+ * FASTCONTEXT_* configuration resolution tests (SPEC §15.4, §19 v3)
+ */
+
+import { describe, test, expect, afterEach } from 'vitest';
+import {
+  loadFastContextConfig,
+  DEFAULT_TEMPERATURE,
+  DEFAULT_MAX_TOKENS,
+  DEFAULT_TIMEOUT_SECONDS,
+} from '../../src/fastcontext-agent/config.js';
+
+const VARS = [
+  "FASTCONTEXT_MODEL",
+  "FASTCONTEXT_API_KEY",
+  "FASTCONTEXT_ENDPOINT",
+  "FASTCONTEXT_TEMPERATURE",
+  "FASTCONTEXT_MAX_TOKENS",
+  "FASTCONTEXT_TIMEOUT_SECONDS",
+] as const;
+
+describe("loadFastContextConfig (SPEC §15.4)", () => {
+  const saved: Record<string, string | undefined> = {};
+
+  afterEach(() => {
+    for (const key of VARS) {
+      if (saved[key] === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = saved[key];
+      }
+    }
+  });
+
+  function clearAll() {
+    for (const key of VARS) {
+      saved[key] = process.env[key];
+      delete process.env[key];
+    }
+  }
+
+  test("should return v3 defaults when nothing is set", () => {
+    clearAll();
+    const cfg = loadFastContextConfig();
+    expect(cfg.model).toBe("");
+    expect(cfg.apiKey).toBe("");
+    expect(cfg.baseUrl).toBe("");
+    expect(cfg.temperature).toBe(DEFAULT_TEMPERATURE);
+    expect(cfg.maxTokens).toBe(DEFAULT_MAX_TOKENS);
+    expect(cfg.timeoutSeconds).toBe(DEFAULT_TIMEOUT_SECONDS);
+    expect(DEFAULT_TEMPERATURE).toBe(0.2); // v3 default (v2 was 1.0)
+  });
+
+  test("should read all variables when set", () => {
+    clearAll();
+    process.env.FASTCONTEXT_MODEL = "m";
+    process.env.FASTCONTEXT_API_KEY = "k";
+    process.env.FASTCONTEXT_ENDPOINT = "http://x/v1";
+    process.env.FASTCONTEXT_TEMPERATURE = "0.5";
+    process.env.FASTCONTEXT_MAX_TOKENS = "4096";
+    process.env.FASTCONTEXT_TIMEOUT_SECONDS = "600";
+
+    const cfg = loadFastContextConfig();
+    expect(cfg.model).toBe("m");
+    expect(cfg.apiKey).toBe("k");
+    expect(cfg.baseUrl).toBe("http://x/v1");
+    expect(cfg.temperature).toBe(0.5);
+    expect(cfg.maxTokens).toBe(4096);
+    expect(cfg.timeoutSeconds).toBe(600);
+  });
+
+  test("should fall back to defaults for invalid values (warn, never crash)", () => {
+    clearAll();
+    process.env.FASTCONTEXT_TEMPERATURE = "hot";
+    process.env.FASTCONTEXT_MAX_TOKENS = "-5";
+    process.env.FASTCONTEXT_TIMEOUT_SECONDS = "1"; // below the 5s minimum
+
+    const cfg = loadFastContextConfig();
+    expect(cfg.temperature).toBe(DEFAULT_TEMPERATURE);
+    expect(cfg.maxTokens).toBe(DEFAULT_MAX_TOKENS);
+    expect(cfg.timeoutSeconds).toBe(DEFAULT_TIMEOUT_SECONDS);
+  });
+
+  test("should reject out-of-range temperature", () => {
+    clearAll();
+    process.env.FASTCONTEXT_TEMPERATURE = "9";
+    expect(loadFastContextConfig().temperature).toBe(DEFAULT_TEMPERATURE);
+  });
+});

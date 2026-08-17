@@ -256,7 +256,7 @@ The following conditions must always be maintained throughout the tool's executi
    `@vscode/ripgrep` dependency (§10), never from an assumption that `rg` is on the user's system
    `PATH`. System `PATH` may be used only as a fallback, never as the primary path. (An operator-set
    `RIPGREP_PATH` environment variable is a documented exception — see §10.1.)
-6. **Behavioral parity invariant**: Tool JSON schemas, truncation limits, permission checks, and
+6. **Behavioral parity invariant** *(v3 note: superseded for the prompt, tool-description, and sampling surfaces by the §19 general-model redesign; this invariant remains the historical v2 record and still binds everything §19 does not list)*: Tool JSON schemas, truncation limits, permission checks, and
    system prompt content must match the original Python implementation exactly, per §8–§9, unless
    explicitly marked as changed in this document.
 7. **External contract invariant**: The `fc_search` tool's name, `parameters` JSON schema (§2.1),
@@ -565,6 +565,10 @@ correctionNote = pathCorrection ? `[${pathCorrection}]\n` : "";
 ---
 
 ## 9. System Prompt & Tool Descriptions
+
+*(v3 note: historical record. The active v3 system prompt and cleaned tool
+descriptions are defined in §19 (C-3, C-4); the text below documents what v1/v2
+ported verbatim for the retired Microsoft model.)*
 
 Port these four files **verbatim** (content is provided here so the implementing agent does not
 need to re-derive it):
@@ -917,6 +921,18 @@ This is a direct object construction, not an environment object handed to a chil
 is no more risk of leaking unrelated `process.env` entries into a subprocess, since
 `runFastContextAgent` is a plain function call within the same process.
 
+### 15.4 v3 sampling / execution configuration (SPEC §19)
+
+| Variable | Default | Valid range | Purpose |
+|---|---|---|---|
+| `FASTCONTEXT_TEMPERATURE` | `0.2` | finite, 0–2 | Sampling temperature. v3 default 0.2 (v2 hard-coded 1.0 for the retired MS model); general small agentic models call tools more reliably at low temperature. |
+| `FASTCONTEXT_MAX_TOKENS` | `32000` | positive integer | Max completion tokens per LLM call. Override for small-context local models. |
+| `FASTCONTEXT_TIMEOUT_SECONDS` | `120` | integer ≥ 5 | Total execution timeout (replaces the v2 hard-coded 120s). CPU-served local models typically need 300–600. |
+
+Parsed by `loadFastContextConfig()` (`src/fastcontext-agent/config.ts`) after `loadEnvFile()`.
+Invalid numeric values emit a `console.warn` and fall back to the default (a broken `.env`
+must never break extension startup, §15.2 policy).
+
 ---
 
 ## 16. Non-Goals / Out of Scope
@@ -1055,3 +1071,83 @@ deliberately **not** changed:
   self-corrects. `path`/`directory` arguments are always containment-gated absolute paths
   and can never be flag-shaped. Adding `--` was considered and rejected: it changes the
   frozen command shape (§8.2/§8.3) for a rare, self-healing failure mode.
+
+---
+
+## 19. v3 General-Model Redesign
+
+**Status:** active. This section supersedes the upstream-parity framing of §4.6, §8
+(descriptions only) and §9 for the surfaces listed below. Everything not listed here
+(§4.1–4.5, §4.7–4.10, tool behavior in §8.1–8.4, §11–14, and the deviation records
+D-001…D-011) remains in force unchanged.
+
+### 19.1 Rationale
+
+v1/v2 treated the Microsoft FastContext model (now removed from all official
+repositories; only community mirrors exist) as the design target, which is why the
+port preserved upstream prompts, tool descriptions, and sampling parameters verbatim.
+That target is retired. The package is now designed for **any general small agentic
+model** served over an OpenAI-compatible `/chat/completions` endpoint with tool
+calling — including CPU-served local models (e.g. `LiquidAI/LFM2.5-2.6B` via
+llama.cpp/vLLM). With a general model, prompt and sampling become the primary tuning
+surface (they replace the fine-tune), and the hard-coded MS-model-era values were
+impractical (120s timeout) or suboptimal (temperature 1.0).
+
+`InternScience/Agents-A1-4B` remains the *verified recommendation* (KN-005); it is a
+profile of this general design, not a special case in code.
+
+### 19.2 Changes
+
+| # | Change | Detail |
+|---|---|---|
+| C-1 | **Configuration surface** (new `src/fastcontext-agent/config.ts`) | New env vars, all optional: `FASTCONTEXT_TEMPERATURE` (default **0.2** — the v2 default 1.0 was MS-model-era; low temperature measurably improves tool-calling reliability on general models), `FASTCONTEXT_MAX_TOKENS` (default 32000, now overridable for small-context local models), `FASTCONTEXT_TIMEOUT_SECONDS` (default 120, minimum 5 — CPU-served models need much more, e.g. 600). Parsed with warn-and-fall-back on invalid values (a broken `.env` must not break startup). |
+| C-2 | **Timeout error message** | The §6 message now reports the configured value: `[ERROR] pi-fc-search execution timeout exceeded (${FASTCONTEXT_TIMEOUT_SECONDS} seconds).` (v2 hard-coded 120). |
+| C-3 | **System prompt rewrite** (`system.md`) | Dropped the stale `<query>` tag reference, the informational `OS_KIND`/`SHELL_NAME` block (the sub-agent cannot execute shell commands), and upstream prose aimed at the fine-tuned model. Added rules a general model needs explicitly: absolute paths inside the workspace only; **verify a file exists (Glob/Grep) before Read** — the direct mitigation for KN-001-style hallucinated paths, which the MS model did not need spelled out; batching independent tool calls; locate-then-read strategy. The `<final_answer>` required-output format (unchanged contract) and the `${WORK_DIR}`/`${WORK_DIR_LS}` substitutions are preserved. Active text in §19.3; the v2 verbatim text remains in §9.4 as historical record. |
+| C-4 | **Tool description cleanup** (behavior unchanged) | `Glob`: removed "sorted by modification time" (upstream never sorted) and "use the Agent tool instead" (no such tool exists — an active trap for general models: `Tool 'Agent' not found.`); now states the real 100-result cap and filesystem order. `Grep`: "capped to several thousand lines" replaced with the actual 100-default / `head_limit`-up-to-2000 semantics (consistent with D-010). `Read`: "500 characters" line-limit prose aligned with the code's 2000. §9.1–9.3 remain the historical v2 record. |
+| C-5 | **Documentation reframing** (README) | "Ported from Microsoft fastcontext with parity" → "inspired by fastcontext; designed for general small agentic models". Model Selection becomes a profile table (Agents-A1-4B recommended / LFM2.5-2.6B CPU via llama.cpp or vLLM with raised timeout / any OpenAI-compatible tool-calling model). |
+| C-6 | **Docker-mount path correction repositioned** | `resolveDockerMountPath` (§8.5) is retained in code unchanged — it is a cheap, defensive, model-independent layer (it also protects users who point the package at a community-mirrored MS model) — but its documentation framing moves from "MS-model compatibility" to "defensive path normalization". |
+
+### 19.3 Active system prompt (v3, `system.md`)
+
+```
+You are a codebase exploration specialist. You search and analyze existing code using the Read, Glob, and Grep tools provided to you. You can only read files — you cannot execute commands or modify anything.
+
+Your goal: answer the user's query about the codebase as fast and accurately as possible.
+
+## Rules
+
+- Every path you pass to a tool must be an absolute path inside the Workspace Path below.
+- Never invent or assume file paths. Verify a file exists (with Glob or Grep) before calling Read on it.
+- Batch independent work: when several searches or reads do not depend on each other, issue them as multiple tool calls in a single response.
+- Preferred strategy: use Grep with output_mode "files_with_matches" to locate candidate files, then Read only the few files that matter. Use Glob to find files by name pattern.
+- Do not re-read files you already have, and stop searching once the answer is supported by evidence you have seen.
+
+## Required Output
+
+End your final response with a brief explanation of your findings (no more than 50 words) written OUTSIDE any tags, followed by a `<final_answer>` tag. Put ONLY file paths with line ranges inside the `<final_answer>` tag — no prose, no explanations, no numbering.
+
+<example>
+The core routing logic lives in two files.
+
+<final_answer>
+/absolute/path/to/file_1.py:10-15 (Optional Brief Reason: e.g., "Core logic to modify")
+/absolute/path/to/file_2.js:102-123
+</final_answer>
+</example>
+
+## Workspace
+
+Workspace Path: ${WORK_DIR}
+
+Top-level entries:
+${WORK_DIR_LS}
+```
+
+### 19.4 Deliberately NOT changed
+
+- Tool set (Read/Glob/Grep), their behavior, schemas, truncation limits, and the
+  cwd-containment invariant (§12) — model-independent and proven.
+- Agent loop structure, turn counting, D-007 final-turn forcing, trajectory
+  recording, timeout/cancellation coordination.
+- The `fc_search` external contract (§4.7).
+- `resolveDockerMountPath` (see C-6).
