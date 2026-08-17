@@ -39,7 +39,7 @@ FASTCONTEXT_ENDPOINT=https://your-fastcontext-endpoint.com
 FASTCONTEXT_MODEL=InternScience/Agents-A1-4B
 ```
 
-For model selection details and sampling parameters, see README **§Model Selection Recommendation**.
+For model selection details and sampling parameters, see README **§Model Selection**.
 
 **Method 2: Shell environment variables**
 

@@ -259,7 +259,9 @@ pi-fc-search/
 │       ├── tools/        # Tool implementations (Read, Glob, Grep)
 │       └── index.ts       # Public entry point
 ├── tests/                # Test infrastructure
-│   └── tools/, utils/    # Unit test suites
+│   ├── integration/      # Agent/LLM/env integration suites (mock-based + opt-in real-server)
+│   ├── tools/            # Tool test suites
+│   └── utils/            # Path utility test suites
 └── skills/
     └── pi-fc-search/
         └── SKILL.md      # Skill definition
@@ -293,7 +295,7 @@ This extension complies with the following SPEC requirements:
 - **Cancellation**: Cooperative cancellation via AbortSignal (SPEC §4.10)
 - **Model-agnostic**: Designed for general small agentic models (SPEC §19)
 - **Tests**: Comprehensive test suite with vitest
-- **SPEC Version**: Compliant with docs/SPEC.md incl. §17 known issues, §18 documented deviations (D-001 to D-033; D-011 superseded by D-012, the D-019 `LLMAPIError` note superseded by D-021), and §19 v3 general-model redesign (incl. C-7 description accuracy pass)
+- **SPEC Version**: Compliant with docs/SPEC.md incl. §17 known issues, §18 documented deviations (D-001 to D-034; D-011 superseded by D-012, the D-019 `LLMAPIError` note superseded by D-021), and §19 v3 general-model redesign (incl. C-7 description accuracy pass)
 - **Transient-failure retry**: LLM API 408/429/5xx and network errors are retried twice with backoff (D-023); LLM API failures and empty final responses are reported as flagged errors (`isError: true`, D-021)
 
 > **Verification**: Full test suite: `npm test` and `npm run typecheck`. The v3 redesign surfaces (prompt, descriptions, sampling/timeout configuration) are covered by `tests/integration/prompt.test.ts` and `tests/integration/config.test.ts`; the context-window auto-retry (D-029) is covered by `tests/integration/context-window-retry.test.ts`.

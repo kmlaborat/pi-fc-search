@@ -90,6 +90,17 @@ export async function getRgPath(): Promise<string> {
  *   produced (usually empty) — it is not an error
  * - any other exit code rejects with stderr (or the exit code)
  */
+
+// (D-034, SPEC §18) stdout accumulation cap. The Read/Grep line-length
+// (D-024) and line-count (D-010) truncation is applied to the FULLY
+// accumulated stdout string, so a single pathological match (one
+// megabyte-scale line in a minified bundle or log) would otherwise sit
+// in memory unbounded before any truncation ran. Once the cap is hit the
+// remaining chunks are dropped: the tools' line limits only ever display
+// a small prefix of the output, and the 10s spawn timeout still bounds
+// the child's runtime.
+const MAX_RG_STDOUT_BYTES = 16 * 1024 * 1024; // 16 MB
+
 export async function runRipgrep(
   args: string[],
   cwd: string,
@@ -101,10 +112,18 @@ export async function runRipgrep(
     const child = spawn(rgPath, args, { cwd, shell: false });
 
     let stdout = "";
+    let stdoutCapReached = false;
     let stderr = "";
 
     child.stdout.on("data", (chunk) => {
+      // (D-034, SPEC §18) cap the accumulation — drop chunks once the
+      // cap is reached (see MAX_RG_STDOUT_BYTES above).
+      if (stdoutCapReached) return;
       stdout += chunk;
+      if (stdout.length > MAX_RG_STDOUT_BYTES) {
+        stdout = stdout.slice(0, MAX_RG_STDOUT_BYTES);
+        stdoutCapReached = true;
+      }
     });
 
     child.stderr.on("data", (chunk) => {

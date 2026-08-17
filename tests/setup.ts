@@ -105,10 +105,3 @@ export function cleanupTestFixtures(): void {
   }
 }
 
-// Helper to verify Python parity - check that outputs match expected patterns
-export function matchesPythonOutput(actual: string, expectedPattern: string | RegExp): boolean {
-  if (typeof expectedPattern === "string") {
-    return actual.includes(expectedPattern);
-  }
-  return expectedPattern.test(actual);
-}

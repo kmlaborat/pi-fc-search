@@ -29,5 +29,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Local environment (may contain API keys — never commit)
+.env
+
 # FastContext trajectories (if any)
 .fastcontext/
