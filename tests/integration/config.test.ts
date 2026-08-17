@@ -103,6 +103,25 @@ describe("loadFastContextConfig (SPEC §15.4)", () => {
     process.env.FASTCONTEXT_TOP_P = "2";
     expect(loadFastContextConfig().topP).toBe(DEFAULT_TOP_P);
   });
+
+  test("integer settings accept only decimal integer literals (D-045, SPEC §18)", () => {
+    clearAll();
+    // Exponent notation: Number("1e3") === 1000 — must be rejected.
+    process.env.FASTCONTEXT_TIMEOUT_SECONDS = "1e3";
+    expect(loadFastContextConfig().timeoutSeconds).toBe(DEFAULT_TIMEOUT_SECONDS);
+    // Hex notation: Number("0x10") === 16 — must be rejected.
+    process.env.FASTCONTEXT_MAX_TOKENS = "0x10";
+    expect(loadFastContextConfig().maxTokens).toBe(DEFAULT_MAX_TOKENS);
+    // Decimal float: Number("12.0") === 12 — must be rejected.
+    process.env.FASTCONTEXT_TIMEOUT_SECONDS = "12.0";
+    expect(loadFastContextConfig().timeoutSeconds).toBe(DEFAULT_TIMEOUT_SECONDS);
+    // Plain literals still work.
+    process.env.FASTCONTEXT_TIMEOUT_SECONDS = "600";
+    process.env.FASTCONTEXT_MAX_TOKENS = "4096";
+    const cfg = loadFastContextConfig();
+    expect(cfg.timeoutSeconds).toBe(600);
+    expect(cfg.maxTokens).toBe(4096);
+  });
 });
 
 describe("validateEndpointUrl (D-026, SPEC §18)", () => {

@@ -18,7 +18,7 @@ End your final response with a brief explanation of your findings (no more than 
 The core routing logic lives in two files.
 
 <final_answer>
-/absolute/path/to/file_1.py:10-15 (Optional Brief Reason: e.g., "Core logic to modify")
+/absolute/path/to/file_1.py:10-15
 /absolute/path/to/file_2.js:102-123
 </final_answer>
 </example>

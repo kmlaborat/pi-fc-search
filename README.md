@@ -139,6 +139,11 @@ src/auth/middleware.py:20-50
 src/api/routes.py:110-140
 </final_answer>
 ```
+
+> **Note**: The sub-agent's final answer **always** ends with a `<final_answer>`
+> block (system-prompt contract, D-046). `use_citation: true` returns only that
+> block; the default (`false`) returns the full final response — a brief
+> explanation followed by the same block.
 ```
 
 ## Configuration
@@ -296,7 +301,7 @@ This extension complies with the following SPEC requirements:
 - **Cancellation**: Cooperative cancellation via AbortSignal (SPEC §4.10)
 - **Model-agnostic**: Designed for general small agentic models (SPEC §19)
 - **Tests**: Comprehensive test suite with vitest
-- **SPEC Version**: Compliant with docs/SPEC.md incl. §17 known issues, §18 documented deviations (D-001 to D-043; D-011 superseded by D-012, the D-019 `LLMAPIError` note superseded by D-021), and §19 v3 general-model redesign (incl. C-7 description accuracy pass)
+- **SPEC Version**: Compliant with docs/SPEC.md incl. §17 known issues, §18 documented deviations (D-001 to D-046; D-011 superseded by D-012, the D-019 `LLMAPIError` note superseded by D-021), and §19 v3 general-model redesign (incl. C-7 description accuracy pass)
 - **Transient-failure retry**: LLM API 408/429/5xx and network errors are retried twice with backoff (D-023); LLM API failures and empty final responses are reported as flagged errors (`isError: true`, D-021)
 
 > **Verification**: Full test suite: `npm test` and `npm run typecheck`. The v3 redesign surfaces (prompt, descriptions, sampling/timeout configuration) are covered by `tests/integration/prompt.test.ts` and `tests/integration/config.test.ts`; the context-window auto-retry (D-029) is covered by `tests/integration/context-window-retry.test.ts`.

@@ -193,6 +193,19 @@ export class GrepTool implements Tool {
         return "Grep Tool: head_limit must be a positive integer. Omit head_limit for the default (100 lines), or use a value up to 2000.";
       }
 
+      // (D-044, SPEC §18) Context parameters follow the same integer
+      // contract head_limit has enforced since D-017 (and Read's paging
+      // parameters since D-032): a fractional or negative -B/-A/-C would
+      // reach rg as-is and surface as an opaque rg usage error. The
+      // actionable message names the fix so the model self-corrects in
+      // one turn. 0 is valid ("no context on that side") and honored.
+      for (const flag of ["-B", "-A", "-C"] as const) {
+        const value = parsed[flag];
+        if (value !== undefined && (!Number.isInteger(value) || value < 0)) {
+          return `Grep Tool: ${flag} must be a non-negative integer (0 = no context on that side).`;
+        }
+      }
+
       // Resolve path with Docker-mount style correction for FastContext model outputs
       let resolvedPath: string;
       let pathCorrection: string | undefined;
@@ -301,9 +314,13 @@ export class GrepTool implements Tool {
     const outputMode = rgArgs.outputMode || "content";
     
     if (outputMode === "content") {
-      if (rgArgs.beforeContext) command.push("-B", String(rgArgs.beforeContext));
-      if (rgArgs.afterContext) command.push("-A", String(rgArgs.afterContext));
-      if (rgArgs.context) command.push("-C", String(rgArgs.context));
+      // (D-044, SPEC §18) undefined checks instead of truthiness: an
+      // explicit -B: 0 / -A: 0 / -C: 0 is a valid "no context on that
+      // side" request and must reach rg unmodified — the old falsy check
+      // silently dropped it (the same bug class D-013 removed for -C).
+      if (rgArgs.beforeContext !== undefined) command.push("-B", String(rgArgs.beforeContext));
+      if (rgArgs.afterContext !== undefined) command.push("-A", String(rgArgs.afterContext));
+      if (rgArgs.context !== undefined) command.push("-C", String(rgArgs.context));
       if (rgArgs.lineNumbers) command.push("-n");
     } else if (outputMode === "files_with_matches") {
       command.push("--files-with-matches");

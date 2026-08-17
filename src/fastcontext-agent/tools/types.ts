@@ -151,7 +151,12 @@ export class ToolSet {
 
   /**
    * Execute tool calls from message.
-   * 
+   *
+   * (Review note) Legacy API path: the agent loop (agent.ts) executes via
+   * callNormalized(); this message-based path is retained for API
+   * completeness (it mirrors the upstream ToolSet.call) and is covered by
+   * tests/tools/toolset.test.ts.
+   *
    * Sequential execution (matching original Python implementation behavior).
    * Per-call timeout of 10s and error isolation ensured.
    * 

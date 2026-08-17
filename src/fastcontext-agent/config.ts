@@ -31,12 +31,23 @@ function parseNumber(
   envValue: string | undefined,
   fallback: number,
   label: string,
-  validate: (n: number) => boolean
+  validate: (n: number) => boolean,
+  // (D-045, SPEC §18) integer settings accept only decimal integer
+  // literals: Number("1e3") === 1000 and Number("0x10") === 16 would
+  // otherwise silently accept notations no operator would write down.
+  integerLiteral = false
 ): number {
   if (envValue === undefined || envValue.trim() === "") {
     return fallback;
   }
-  const n = Number(envValue);
+  const trimmed = envValue.trim();
+  if (integerLiteral && !/^\d+$/.test(trimmed)) {
+    console.warn(
+      `[pi-fc-search] Invalid ${label}="${envValue}" — must be a non-negative integer. Using default ${fallback}.`
+    );
+    return fallback;
+  }
+  const n = Number(trimmed);
   if (!validate(n)) {
     console.warn(
       `[pi-fc-search] Invalid ${label}="${envValue}" — must be a number. Using default ${fallback}.`
@@ -106,13 +117,15 @@ export function loadFastContextConfig(): FastContextEnvConfig {
       process.env.FASTCONTEXT_MAX_TOKENS,
       DEFAULT_MAX_TOKENS,
       "FASTCONTEXT_MAX_TOKENS",
-      (n) => Number.isInteger(n) && n > 0
+      (n) => Number.isInteger(n) && n > 0,
+      true // D-045, SPEC §18
     ),
     timeoutSeconds: parseNumber(
       process.env.FASTCONTEXT_TIMEOUT_SECONDS,
       DEFAULT_TIMEOUT_SECONDS,
       "FASTCONTEXT_TIMEOUT_SECONDS",
-      (n) => Number.isInteger(n) && n >= 5
+      (n) => Number.isInteger(n) && n >= 5,
+      true // D-045, SPEC §18
     ),
   };
 }

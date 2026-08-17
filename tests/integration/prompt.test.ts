@@ -34,4 +34,8 @@ describe("System prompt (v3, SPEC §19 C-3)", () => {
     expect(prompt).not.toContain("OS Version");
     expect(prompt).not.toContain("Shell:");
   });
+
+  test("v3: <final_answer> example must not contradict the no-prose rule (D-046, SPEC §18)", () => {
+    expect(prompt).not.toContain("Optional Brief Reason");
+  });
 });

@@ -312,5 +312,51 @@ describe("GrepTool - Extended Tests", () => {
 
       expect(result).toContain("hello");
     });
+
+    test("should honor explicit -B: 0 combined with -A (D-044, SPEC §18)", async () => {
+      const result = await grepTool.call(
+        JSON.stringify({
+          pattern: "hello",
+          path: join(TEST_FIXTURES_DIR, "output_test.ts"),
+          output_mode: "content",
+          "-B": 0,
+          "-A": 2
+        }),
+        { cwd: TEST_FIXTURES_DIR }
+      );
+
+      // -A 2 shows the line after the match; -B 0 keeps the preceding
+      // comment line out of the output.
+      expect(result).toContain("greet");
+      expect(result).not.toContain("Test file for output modes");
+    });
+
+    test("should reject negative -B with an actionable message (D-044, SPEC §18)", async () => {
+      const result = await grepTool.call(
+        JSON.stringify({
+          pattern: "hello",
+          path: join(TEST_FIXTURES_DIR, "output_test.ts"),
+          output_mode: "content",
+          "-B": -1
+        }),
+        { cwd: TEST_FIXTURES_DIR }
+      );
+
+      expect(result).toContain("-B must be a non-negative integer");
+    });
+
+    test("should reject non-integer -C with an actionable message (D-044, SPEC §18)", async () => {
+      const result = await grepTool.call(
+        JSON.stringify({
+          pattern: "hello",
+          path: join(TEST_FIXTURES_DIR, "output_test.ts"),
+          output_mode: "content",
+          "-C": 1.5
+        }),
+        { cwd: TEST_FIXTURES_DIR }
+      );
+
+      expect(result).toContain("-C must be a non-negative integer");
+    });
   });
 });

@@ -36,7 +36,11 @@ const SearchToolSchema = {
     },
     use_citation: {
       type: "boolean",
-      description: "Enable citation mode (output only file paths and line numbers). Default is false for full context with summaries.",
+      // (D-046, SPEC §18) state the system-prompt contract explicitly: the
+      // final answer ALWAYS ends with a <final_answer> block in both modes;
+      // citation mode returns only the block, default mode returns the full
+      // final response (brief explanation plus the block).
+      description: "Enable citation mode: only the <final_answer> block (file paths with line ranges) is returned. Default is false: the sub-agent's full final response (brief explanation followed by the <final_answer> block) is returned.",
       default: false,
     },
   },
