@@ -174,6 +174,62 @@ describe("GrepTool", () => {
     }
   });
 
+  // (D-035, SPEC §18) -C is a fallback default: explicit -A/-B define the
+  // context precisely and suppress the default -C 3 (rg applies the later
+  // context flag per direction, so pushing the default -C after -B/-A used
+  // to silently override them).
+  const writeCtxFixture = () => {
+    const file = join(TEST_FIXTURES_DIR, "ctx_fixture.txt");
+    fs.writeFileSync(
+      file,
+      ["line1", "line2", "line3", "MATCH", "line5", "line6", "line7", "line8", "line9"].join("\n") + "\n",
+      "utf-8"
+    );
+    return file;
+  };
+
+  test("applies the default -C 3 context when no -A/-B is given (D-035, SPEC §18)", async () => {
+    const file = writeCtxFixture();
+    const result = await grepTool.call(
+      JSON.stringify({ pattern: "MATCH", path: file, output_mode: "content" }),
+      { cwd: TEST_FIXTURES_DIR }
+    );
+
+    // With --heading, context lines are separated by '-' and match lines by ':'.
+    expect(result).toContain("1-line1"); // 3 lines before the match
+    expect(result).toContain("4:MATCH");
+    expect(result).toContain("7-line7"); // 3 lines after the match
+    expect(result).not.toContain("8-line8");
+  });
+
+  test("honors an explicit -A without the default -C (D-035, SPEC §18)", async () => {
+    const file = writeCtxFixture();
+    const result = await grepTool.call(
+      JSON.stringify({ pattern: "MATCH", path: file, output_mode: "content", "-A": 2 }),
+      { cwd: TEST_FIXTURES_DIR }
+    );
+
+    expect(result).toContain("4:MATCH");
+    expect(result).toContain("5-line5"); // 2 lines after
+    expect(result).toContain("6-line6");
+    expect(result).not.toContain("3-line3"); // no context before
+    expect(result).not.toContain("7-line7"); // no default -C leak
+  });
+
+  test("honors explicit -B and -A precisely (D-035, SPEC §18)", async () => {
+    const file = writeCtxFixture();
+    const result = await grepTool.call(
+      JSON.stringify({ pattern: "MATCH", path: file, output_mode: "content", "-B": 1, "-A": 1 }),
+      { cwd: TEST_FIXTURES_DIR }
+    );
+
+    expect(result).toContain("3-line3"); // 1 line before
+    expect(result).toContain("4:MATCH");
+    expect(result).toContain("5-line5"); // 1 line after
+    expect(result).not.toContain("2-line2");
+    expect(result).not.toContain("6-line6");
+  });
+
   test("should add helpful hint for malformed regex patterns", async () => {
     // Use a pattern with a stray closing parenthesis that will cause ripgrep to return a regex parse error
     const result = await grepTool.call(

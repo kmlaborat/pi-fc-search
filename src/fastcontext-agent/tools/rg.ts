@@ -126,8 +126,19 @@ export async function runRipgrep(
       }
     });
 
+    let stderrCapReached = false;
     child.stderr.on("data", (chunk) => {
+      // (D-038, SPEC §18) same accumulation cap as stdout (D-034): an rg
+      // invocation that dumps megabytes of stderr (e.g. permission-denied
+      // lines across a huge tree) would otherwise sit in memory unbounded
+      // before the reject surfaces it into a tool result — and the error
+      // text is what the sub-agent model would see.
+      if (stderrCapReached) return;
       stderr += chunk;
+      if (stderr.length > MAX_RG_STDOUT_BYTES) {
+        stderr = stderr.slice(0, MAX_RG_STDOUT_BYTES);
+        stderrCapReached = true;
+      }
     });
 
     const timeoutHandle = setTimeout(() => {

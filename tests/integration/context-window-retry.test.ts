@@ -10,8 +10,10 @@
 
 import { describe, test, expect, vi, beforeEach } from "vitest";
 
-// The extension module resolves FC_CONFIG at load time — set the required
-// variables before importing it (module registry is per-test-file in vitest).
+// The extension resolves its configuration per call (D-037, SPEC §18) and
+// fail-fasts on missing values (D-019/D-026) — set the required variables
+// up front (module registry is per-test-file in vitest); the D-037 test
+// below mutates FASTCONTEXT_ENDPOINT between calls and relies on that.
 process.env.FASTCONTEXT_ENDPOINT = "http://localhost:1/v1";
 process.env.FASTCONTEXT_MODEL = "test-model";
 
@@ -102,5 +104,36 @@ describe("executeAgent context-window auto-retry (D-029, SPEC §18)", () => {
       executeAgent("find x", process.cwd(), undefined, 15)
     ).rejects.toThrow("boom");
     expect(mockedRun).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("executeAgent configuration resolution (D-037, SPEC §18)", () => {
+  beforeEach(() => {
+    mockedRun.mockReset();
+  });
+
+  test("re-reads the configuration per call instead of using a module-load snapshot", async () => {
+    const { executeAgent } = await import("../../extensions/index.js");
+
+    const savedEndpoint = process.env.FASTCONTEXT_ENDPOINT;
+    try {
+      process.env.FASTCONTEXT_ENDPOINT = "http://first.example/v1";
+      mockedRun.mockResolvedValue("ok");
+      await executeAgent("find x", process.cwd(), undefined, 15);
+
+      process.env.FASTCONTEXT_ENDPOINT = "http://second.example/v1";
+      mockedRun.mockResolvedValue("ok");
+      await executeAgent("find x", process.cwd(), undefined, 15);
+
+      expect(mockedRun).toHaveBeenCalledTimes(2);
+      expect(mockedRun.mock.calls[0][0]).toMatchObject({
+        llm: { baseUrl: "http://first.example/v1" },
+      });
+      expect(mockedRun.mock.calls[1][0]).toMatchObject({
+        llm: { baseUrl: "http://second.example/v1" },
+      });
+    } finally {
+      process.env.FASTCONTEXT_ENDPOINT = savedEndpoint;
+    }
   });
 });

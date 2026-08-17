@@ -99,7 +99,7 @@ export class GrepTool implements Tool {
       },
       "-C": {
         type: "number",
-        description: 'Number of lines to show before and after each match (rg -C). Requires output_mode: "content", ignored otherwise. Defaults to 3.'
+        description: 'Number of lines to show before and after each match (rg -C). Requires output_mode: "content", ignored otherwise. Defaults to 3 only when neither -A nor -B is given; with -A or -B set, -C is not applied — pass -C explicitly if you want context on both sides. (D-035, SPEC §18)'
       },
       "-n": {
         type: "boolean",
@@ -160,7 +160,18 @@ export class GrepTool implements Tool {
         // (D-013, SPEC §18): `||` coerced an explicit `-C: 0` (no context) to
         // the default 3. `??` honors 0; the default applies only when the
         // parameter is absent (undefined).
-        context: parsed["-C"] ?? 3,
+        // (D-035, SPEC §18): the default 3 is now a FALLBACK applied only
+        // when neither -B nor -A is given. rg resolves context flags
+        // positionally (the later flag wins per direction), and this tool
+        // pushed -B/-A before -C, so the default `-C 3` silently overrode
+        // every explicit -B/-A request — a model asking for `-A: 10`
+        // received the default 3/3 context. Explicit -A/-B now reach rg
+        // unmodified and define the context precisely; a model that wants
+        // context on both sides passes -C explicitly.
+        context:
+          parsed["-B"] !== undefined || parsed["-A"] !== undefined
+            ? undefined
+            : parsed["-C"] ?? 3,
         lineNumbers: parsed["-n"] ?? true,
         ignoreCase: parsed["-i"] || false,
         typeFilter: parsed.type,

@@ -10,7 +10,6 @@ import * as path from "path";
 import { runFastContextAgent, RunFastContextAgentOptions } from "../src/fastcontext-agent/index.js";
 import { loadEnvFile } from "../src/fastcontext-agent/env.js";
 import { loadFastContextConfig, validateEndpointUrl } from "../src/fastcontext-agent/config.js";
-import type { FastContextEnvConfig } from "../src/fastcontext-agent/config.js";
 import { CancelledError, ConfigurationError, ContextWindowError, TimeoutError } from "../src/fastcontext-agent/errors.js";
 
 // Tool input schema (JSON Schema format - zero external dependencies)
@@ -62,8 +61,8 @@ loadEnvFile();
 // ============================================================================
 // Configuration from .env / shell environment (SPEC §15, §19 v3)
 // ============================================================================
-
-const FC_CONFIG: FastContextEnvConfig = loadFastContextConfig();
+// (D-037, SPEC §18) the configuration is resolved per tool call inside
+// executeAgent() — not snapshotted at module load.
 
 /**
  * Validates tool input parameters
@@ -132,7 +131,15 @@ export async function executeAgent(
   useCitation: boolean = false,
   onTurn?: (n: number, maxTurns: number) => void
 ): Promise<string> {
-  
+  // (D-037, SPEC §18) Resolve the configuration per call instead of
+  // snapshotting it at module load. A long-lived pi process previously froze
+  // the endpoint/model/timeout at first import, so correcting a value in the
+  // package .env (or shell environment) required a full pi restart to take
+  // effect. loadEnvFile() still runs once at module init (D-012 precedence
+  // unchanged); this only re-reads the resulting process.env per call, which
+  // is cheap (no fs I/O) and keeps the fail-fast checks below per-call too.
+  const FC_CONFIG = loadFastContextConfig();
+
   // Fail fast with an actionable message when configuration is missing —
   // BEFORE the timeout timer is scheduled so a config error does not leave a
   // pending timer. Without this check, an empty base URL produces a cryptic
@@ -185,7 +192,7 @@ export async function executeAgent(
   };
   controller.signal.addEventListener("abort", onControllerAbort, { once: true });
 
-  // Resolved from .env + process.env at module load (SPEC §15); fail-fast
+  // Resolved from .env + process.env per call (SPEC §15, D-037); fail-fast
   // checks above guarantee endpoint and model are set.
   const options: RunFastContextAgentOptions = {
     prompt,

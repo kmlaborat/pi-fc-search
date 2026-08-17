@@ -56,7 +56,7 @@ The skill automatically loads `.env` from the package directory (`pi-fc-search/.
 - Supports `KEY=VALUE` format with optional quotes (`"value"` or `'value'`)
 - Lines starting with `#` are treated as comments
 - Only `FASTCONTEXT_*` keys are applied; any other key is ignored with a warning (SPEC §18/D-018)
-- Failed file reads are silently ignored (does not break execution)
+- Failed file reads are logged (`console.error`) but do not break execution
 
 No additional setup required otherwise. The skill is automatically loaded with the pi-fc-search package.
 

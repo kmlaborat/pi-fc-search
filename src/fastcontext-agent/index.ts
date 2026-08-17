@@ -7,7 +7,7 @@ import { tmpdir } from "os";
 import { join, dirname } from "path";
 import { readdirSync, statSync, unlinkSync } from "fs";
 import { LLMClient } from "./llm.js";
-import { DEFAULT_TEMPERATURE } from "./config.js";
+import { DEFAULT_TEMPERATURE, DEFAULT_TOP_P, DEFAULT_MAX_TOKENS } from "./config.js";
 import { ToolSet } from "./tools/types.js";
 import { ReadTool } from "./tools/read.js";
 import { GlobTool } from "./tools/glob.js";
@@ -89,10 +89,13 @@ export async function runFastContextAgent(options: RunFastContextAgentOptions): 
   }
 
   // Create LLM client with environment variables
+  // (Review fix) defaults come from the single source of truth in config.ts
+  // instead of duplicated literals — the old literals could drift from
+  // DEFAULT_TOP_P / DEFAULT_MAX_TOKENS.
   const llmClient = new LLMClient(options.llm.model, options.llm.apiKey, options.llm.baseUrl, {
-    max_tokens: options.llm.maxTokens ?? 32000,
+    max_tokens: options.llm.maxTokens ?? DEFAULT_MAX_TOKENS,
     temperature: options.llm.temperature ?? DEFAULT_TEMPERATURE,
-    top_p: options.llm.topP ?? 0.95
+    top_p: options.llm.topP ?? DEFAULT_TOP_P
   });
 
   // Create tool set (read-only tools)

@@ -252,6 +252,18 @@ describe("LLMClient - transient failure retry (D-023, SPEC §18)", () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
+  test("does not retry a non-JSON response body (D-036, SPEC §18)", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.reject(new SyntaxError("Unexpected token < in JSON at position 0")),
+    } as any);
+    const c = new LLMClient("m", "k", "http://x/v1", { retry_delay_ms: 1 });
+
+    await expect(c.acall([{ role: "user", content: "hi" }])).rejects.toThrow(/not valid JSON/);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
   test("gives up after 3 attempts on persistent 500", async () => {
     mockFetch.mockResolvedValue(httpError(500));
     const c = new LLMClient("m", "k", "http://x/v1", { retry_delay_ms: 1 });

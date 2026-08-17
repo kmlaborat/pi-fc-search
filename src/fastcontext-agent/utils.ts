@@ -3,9 +3,7 @@
  * Ported from src/fastcontext/agent/utils.py
  */
 
-import { readFileSync, existsSync } from "fs";
-import { resolve as pathResolve } from "path";
-
+import { existsSync } from "fs";
 import * as path from "node:path";
 
 /**
@@ -13,8 +11,8 @@ import * as path from "node:path";
  * Windows-correct path containment implementation (SPEC §12)
  */
 export function isWithinCwd(candidate: string, cwd: string): boolean {
-  const resolvedCwd = pathResolve(cwd);
-  const resolvedCandidate = pathResolve(cwd, candidate);
+  const resolvedCwd = path.resolve(cwd);
+  const resolvedCandidate = path.resolve(cwd, candidate);
   const rel = path.relative(resolvedCwd, resolvedCandidate);
   // (D-009, SPEC §18): the `..` check must be segment-aware. The SPEC §12
   // reference implementation (`rel.startsWith("..")`) also rejects legitimate
@@ -45,7 +43,7 @@ export function isWithinCwd(candidate: string, cwd: string): boolean {
  * @returns Object with { resolved: string, correction?: string } or null if unresolvable
  */
 export function resolveDockerMountPath(originalPath: string, cwd: string): { resolved: string; correction?: string } | null {
-  const absCwd = pathResolve(cwd);
+  const absCwd = path.resolve(cwd);
   // (D-033, SPEC §18) filesystem name comparisons are case-insensitive only
   // on Windows (case-insensitive default filesystems); on POSIX a
   // case-mismatched component names a different, non-existent entry, so it
@@ -54,7 +52,7 @@ export function resolveDockerMountPath(originalPath: string, cwd: string): { res
     process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
 
   // Strategy 1: Direct resolution - if the original path resolves within cwd and exists, use it
-  const directResolved = pathResolve(absCwd, originalPath);
+  const directResolved = path.resolve(absCwd, originalPath);
   if (isWithinCwd(directResolved, absCwd)) {
     return { resolved: directResolved };
   }
@@ -73,7 +71,7 @@ export function resolveDockerMountPath(originalPath: string, cwd: string): { res
       // The candidate must EXIST — without this check any absolute path
       // would be swallowed here and the tools' containment check (SPEC §12)
       // could never produce its Permission error.
-      const strippedResolved = pathResolve(absCwd, stripped);
+      const strippedResolved = path.resolve(absCwd, stripped);
       if (isWithinCwd(strippedResolved, absCwd) && existsSync(strippedResolved)) {
         return { resolved: strippedResolved, correction: `Path corrected from ${originalPath} to ${stripped}` };
       }
@@ -88,7 +86,7 @@ export function resolveDockerMountPath(originalPath: string, cwd: string): { res
     if (originalPath === `/${cwdBasename}` || originalPath.startsWith(mountPrefix)) {
       // Remove the /<repo-name> prefix
       const relativePart = originalPath.slice(mountPrefix.length) || ".";
-      const mountResolved = pathResolve(absCwd, relativePart);
+      const mountResolved = path.resolve(absCwd, relativePart);
       
       if (isWithinCwd(mountResolved, absCwd) && existsSync(mountResolved)) {
         return { resolved: mountResolved, correction: `Path corrected from ${originalPath} to ${relativePart}` };
@@ -104,7 +102,7 @@ export function resolveDockerMountPath(originalPath: string, cwd: string): { res
       // Found repo-name in the path, strip everything up to and including it
       const remaining = parts.slice(i + 1);
       if (remaining.length > 0) {
-        const candidateResolved = pathResolve(absCwd, ...remaining);
+        const candidateResolved = path.resolve(absCwd, ...remaining);
         if (isWithinCwd(candidateResolved, absCwd) && existsSync(candidateResolved)) {
           return { 
             resolved: candidateResolved, 

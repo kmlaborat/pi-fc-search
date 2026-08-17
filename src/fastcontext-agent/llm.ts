@@ -236,7 +236,23 @@ export class LLMClient {
           throw error;
         }
 
-        const data = await response.json();
+        let data: any;
+        try {
+          data = await response.json();
+        } catch {
+          // (D-036, SPEC §18) A 200 response whose body is not valid JSON is a
+          // server defect, not a transient network failure: falling into the
+          // generic catch below would have misclassified it as a network
+          // error, burning the D-023 retries and backoffs against a
+          // deterministic failure, and finally surfacing as the opaque
+          // "LLM API call failed: Unexpected token ...". Thrown as a
+          // semantic LLMAPIError — the catch below re-throws LLMAPIError,
+          // so it is never retried.
+          throw new LLMAPIError(
+            "The LLM endpoint returned a response that is not valid JSON. " +
+            "Check that FASTCONTEXT_ENDPOINT serves a standard OpenAI-compatible /chat/completions implementation."
+          );
+        }
 
         // Extract raw message and normalized tool calls separately
         return this.extractRawMessage(data);
