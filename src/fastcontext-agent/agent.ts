@@ -5,7 +5,7 @@
 
 import type { LLMClient, NormalizedToolCall } from "./llm.js";
 import { normalizeToolCalls } from "./llm.js";
-import { CancelledError, LLMAPIError } from "./errors.js";
+import { CancelledError, LLMAPIError, NoFinalAnswerError } from "./errors.js";
 import type { ToolSet, FunctionCall } from "./tools/types.js";
 import { Context } from "./context.js";
 import { loadSystemPrompt } from "./prompt.js";
@@ -75,9 +75,16 @@ export class Agent {
       // Report progress (extension surfaces this via tool updates)
       onTurn?.(nTurn, maxTurns);
 
-      // Check max turns
+      // Check max turns.
+      // (D-042, SPEC §18) exhaustion of the full budget (including the
+      // D-007 forced final turn) without a final answer is a failed
+      // search: thrown as a typed error so the extension flags the tool
+      // result isError: true (D-019), instead of resolving the string as
+      // a successful answer the host agent could reason over as search
+      // output. The message text is the unchanged Requirement B exit
+      // message.
       if (nTurn > maxTurns + 1) {
-        return `No final answer after ${maxTurns} turns.`;
+        throw new NoFinalAnswerError(`No final answer after ${maxTurns} turns.`);
       }
 
       // Inject "please provide final answer" at the last turn.

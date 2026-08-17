@@ -11,7 +11,7 @@ import { isWithinCwd } from '../../src/fastcontext-agent/utils.js';
 import { Agent } from '../../src/fastcontext-agent/agent.js';
 import { ToolSet } from '../../src/fastcontext-agent/tools/types.js';
 import { ReadTool } from '../../src/fastcontext-agent/tools/read.js';
-import { LLMAPIError } from '../../src/fastcontext-agent/errors.js';
+import { LLMAPIError, NoFinalAnswerError } from '../../src/fastcontext-agent/errors.js';
 
 // Mock child_process.spawn
 const mockSpawn = vi.fn();
@@ -169,5 +169,37 @@ describe("Agent loop - LLM API failure propagation (D-021, SPEC §18)", () => {
 
     const result = await agent.run({ prompt: "find x", maxTurns: 3 });
     expect(result).toContain("<final_answer>");
+  });
+});
+
+describe("Agent loop - turn budget exhaustion (D-042, SPEC §18)", () => {
+  test("throws NoFinalAnswerError (not a successful string answer) when the budget is exhausted", async () => {
+    const toolset = new ToolSet([new ReadTool()], process.cwd());
+    // The model keeps requesting tools forever, including on the D-007
+    // forced final turn (which offers no tools — but a confused model can
+    // still be scripted to ignore the mandate).
+    const acall = vi.fn().mockResolvedValue({
+      raw: {
+        role: "assistant",
+        content: "",
+        tool_calls: [{ id: "c1", type: "function", function: { name: "Read", arguments: '{"path":"x"}' } }],
+      },
+      normalizedToolCalls: [{ id: "c1", name: "Read", arguments: { path: "x" } }],
+    });
+    const trajectoryFile = join(tmpdir(), "pi-fc-search", "trajectory_test_d42.jsonl");
+    const agent = new Agent("test", { acall } as any, toolset, trajectoryFile, process.cwd());
+
+    // Pre-D-042 this RESOLVED with the string "No final answer after 2 turns."
+    // and the extension returned it as a successful (isError: false) result.
+    // Now it rejects with the typed error (unchanged Requirement B message)
+    // so the extension flags the tool result isError: true (D-019).
+    await expect(agent.run({ prompt: "find x", maxTurns: 2 })).rejects.toThrow(
+      NoFinalAnswerError
+    );
+    await expect(agent.run({ prompt: "find x", maxTurns: 2 })).rejects.toThrow(
+      "No final answer after 2 turns."
+    );
+    // Two runs above; each burns maxTurns turns plus the forced final turn.
+    expect(acall).toHaveBeenCalledTimes(6);
   });
 });

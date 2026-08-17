@@ -105,6 +105,46 @@ describe("executeAgent context-window auto-retry (D-029, SPEC §18)", () => {
     ).rejects.toThrow("boom");
     expect(mockedRun).toHaveBeenCalledTimes(1);
   });
+
+  test("does not retry when the remaining timeout budget is below the minimum (D-041, SPEC §18)", async () => {
+    const { executeAgent } = await import("../../extensions/index.js");
+
+    // The retry shares the total-execution timeout with the first run.
+    // With a 5s timeout and a first run that overflows after 4s, only ~1s
+    // would remain — the retry would abort mid-flight and surface a
+    // confusing TimeoutError. The original ContextWindowError must be
+    // reported instead.
+    vi.useFakeTimers();
+    const savedTimeout = process.env.FASTCONTEXT_TIMEOUT_SECONDS;
+    process.env.FASTCONTEXT_TIMEOUT_SECONDS = "5";
+    try {
+      mockedRun.mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) =>
+            setTimeout(() => reject(new ContextWindowError(OVERFLOW)), 4000)
+          )
+      );
+
+      const result = executeAgent("find x", process.cwd(), undefined, 15).catch(
+        (e: unknown) => e
+      );
+      // Advance first: awaiting the result before the fake timers fire the
+      // 4s reject / 5s timeout would deadlock.
+      await vi.advanceTimersByTimeAsync(6000);
+      const err = await result;
+
+      expect(err).toBeInstanceOf(ContextWindowError);
+      // The halved-budget retry was skipped for lack of timeout budget.
+      expect(mockedRun).toHaveBeenCalledTimes(1);
+    } finally {
+      if (savedTimeout === undefined) {
+        delete process.env.FASTCONTEXT_TIMEOUT_SECONDS;
+      } else {
+        process.env.FASTCONTEXT_TIMEOUT_SECONDS = savedTimeout;
+      }
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("executeAgent configuration resolution (D-037, SPEC §18)", () => {

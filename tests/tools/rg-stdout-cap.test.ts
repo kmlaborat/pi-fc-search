@@ -49,4 +49,28 @@ describe("runRipgrep stdout cap (D-034, SPEC §18)", () => {
     // through.
     expect(output.includes("NEEDLE_END")).toBe(false);
   }, 60_000);
+
+  test("multi-byte (CJK) output round-trips intact (D-040, SPEC §18)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pi-fc-search-rg-cjk-"));
+    try {
+      // CJK content that is trivially splittable across chunk boundaries:
+      // the pre-D-040 `stdout += chunk` decoded each pipe chunk
+      // independently, so a multi-byte character split by a chunk boundary
+      // surfaced as U+FFFD. A single decode of the accumulated bytes cannot
+      // corrupt it.
+      const line =
+        "検索対象: 認証ミドルウェア " +
+        "abcdefghijklmnopqrstuvwxyz0123456789 ".repeat(200) +
+        "尾部マーカー";
+      writeFileSync(join(dir, "cjk.txt"), line + "\n", "utf-8");
+
+      const output = await runRipgrep(["-n", "検索対象", join(dir, "cjk.txt")], dir, 10);
+
+      expect(output).toContain("検索対象: 認証ミドルウェア");
+      expect(output).toContain("尾部マーカー");
+      expect(output).not.toContain("\uFFFD");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

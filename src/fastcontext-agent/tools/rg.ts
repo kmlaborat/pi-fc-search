@@ -111,32 +111,40 @@ export async function runRipgrep(
   return new Promise((resolve, reject) => {
     const child = spawn(rgPath, args, { cwd, shell: false });
 
-    let stdout = "";
+    // (D-040, SPEC §18) accumulate as Buffer[] and decode exactly once on
+    // settle. The previous `stdout += chunk` relied on Buffer's implicit
+    // per-chunk UTF-8 conversion, which corrupts a multi-byte character
+    // (e.g. CJK in a file name) split across a chunk boundary. The byte cap
+    // (D-034/D-038) is now measured in real bytes (chunk.length), not
+    // string length.
+    let stdoutChunks: Buffer[] = [];
+    let stdoutBytes = 0;
     let stdoutCapReached = false;
-    let stderr = "";
+    let stderrChunks: Buffer[] = [];
+    let stderrBytes = 0;
+    let stderrCapReached = false;
 
-    child.stdout.on("data", (chunk) => {
+    child.stdout.on("data", (chunk: Buffer) => {
       // (D-034, SPEC §18) cap the accumulation — drop chunks once the
       // cap is reached (see MAX_RG_STDOUT_BYTES above).
       if (stdoutCapReached) return;
-      stdout += chunk;
-      if (stdout.length > MAX_RG_STDOUT_BYTES) {
-        stdout = stdout.slice(0, MAX_RG_STDOUT_BYTES);
+      stdoutChunks.push(chunk);
+      stdoutBytes += chunk.length;
+      if (stdoutBytes > MAX_RG_STDOUT_BYTES) {
         stdoutCapReached = true;
       }
     });
 
-    let stderrCapReached = false;
-    child.stderr.on("data", (chunk) => {
+    child.stderr.on("data", (chunk: Buffer) => {
       // (D-038, SPEC §18) same accumulation cap as stdout (D-034): an rg
       // invocation that dumps megabytes of stderr (e.g. permission-denied
       // lines across a huge tree) would otherwise sit in memory unbounded
       // before the reject surfaces it into a tool result — and the error
       // text is what the sub-agent model would see.
       if (stderrCapReached) return;
-      stderr += chunk;
-      if (stderr.length > MAX_RG_STDOUT_BYTES) {
-        stderr = stderr.slice(0, MAX_RG_STDOUT_BYTES);
+      stderrChunks.push(chunk);
+      stderrBytes += chunk.length;
+      if (stderrBytes > MAX_RG_STDOUT_BYTES) {
         stderrCapReached = true;
       }
     });
@@ -148,6 +156,21 @@ export async function runRipgrep(
 
     child.on("close", (code) => {
       clearTimeout(timeoutHandle);
+
+      // (D-040, SPEC §18) single decode of the accumulated bytes (see the
+      // chunk handlers above). The chunk handlers retain up to one chunk
+      // beyond the cap (the chunk that crosses it is already in memory);
+      // trim back to the exact cap so the D-034/D-038 contract (resolved
+      // string <= MAX_RG_STDOUT_BYTES) holds. Trimming at the byte level
+      // can split a trailing multi-byte character — that tail is
+      // pathological output no consumer ever shows, so a U+FFFD there is
+      // acceptable.
+      const stdout = Buffer.concat(stdoutChunks)
+        .subarray(0, MAX_RG_STDOUT_BYTES)
+        .toString("utf8");
+      const stderr = Buffer.concat(stderrChunks)
+        .subarray(0, MAX_RG_STDOUT_BYTES)
+        .toString("utf8");
 
       // ripgrep exits with 1 when nothing matches — that is success for us
       if (code === 0 || code === 1) {

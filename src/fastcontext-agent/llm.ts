@@ -299,7 +299,22 @@ export class LLMClient {
     }
 
     const choice = responseData.choices[0];
-    
+
+    // (D-039, SPEC §18) A choice without a message (some servers return only
+    // a finish_reason on partial/aborted completions) previously hit
+    // `{ ...choice.message }` as a TypeError deep inside acall's generic
+    // catch — misclassified as a transient network failure, which burned the
+    // D-023 retries and backoffs on a deterministic server defect before
+    // surfacing as the opaque "LLM API call failed: Cannot convert undefined
+    // or null to object". Thrown as a semantic LLMAPIError, the catch re-
+    // throws it immediately and it is never retried.
+    if (choice.message === undefined || choice.message === null) {
+      throw new LLMAPIError(
+        "No message returned from LLM API call. " +
+        "Check that FASTCONTEXT_ENDPOINT serves a standard OpenAI-compatible /chat/completions implementation."
+      );
+    }
+
     // Ensure all required fields exist on the raw object (defensive fix for servers returning partial data)
     const rawMessage: any = { ...choice.message };
     

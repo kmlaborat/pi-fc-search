@@ -342,3 +342,24 @@ describe("LLMClient - context overflow surfacing (D-027, SPEC §18)", () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("LLMClient - missing message in response (D-039, SPEC §18)", () => {
+  test("throws an explicit LLMAPIError (no message) without burning D-023 retries", async () => {
+    // A 200 whose single choice has no `message` object (partial/aborted
+    // completions from some servers). Pre-D-039 the spread of undefined hit
+    // a TypeError, misclassified as a transient network failure: two
+    // wasted retries and backoffs, then an opaque "Cannot convert undefined
+    // or null to object" message.
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue(
+      createMockResponse({ choices: [{ finish_reason: "stop" }] })
+    );
+    const c = new LLMClient("m", "k", "http://x/v1", { retry_delay_ms: 1 });
+
+    await expect(c.acall([{ role: "user", content: "hi" }])).rejects.toThrow(
+      /No message returned from LLM API call/
+    );
+    // A deterministic server defect is never retried.
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+});

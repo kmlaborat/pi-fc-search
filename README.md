@@ -217,6 +217,7 @@ The extension handles the following error cases:
 | Missing Parameters | Invalid tool arguments | Provide valid description and prompt |
 | Missing Configuration | `FASTCONTEXT_ENDPOINT`/`FASTCONTEXT_MODEL` unset | Set them in `pi-fc-search/.env` (see `.env.example`) or as shell environment variables |
 | No Matching Code Found | Search returned no results | Refine search query |
+| Turn Budget Exhausted | The model used all `max_turns` (including the forced final turn) without producing a final answer; flagged `isError: true` (D-042) | Re-run with a larger `max_turns` or a more focused prompt |
 | LLM API Error | Upstream API failure (transient 408/429/5xx and network errors are retried twice with backoff, D-023); reported with `isError: true` (D-021). A context-window exceedance is retried once automatically with the turn budget halved (D-029) and, if that still fails, reported as an actionable message (D-027) | Check API configuration, retry the search; on context overflow, re-run with a smaller `max_turns` or a more focused prompt |
 | Ripgrep binary missing | Bundled binary unavailable | Ensure @vscode/ripgrep is installed |
 | Timeout | Operation exceeds `FASTCONTEXT_TIMEOUT_SECONDS` (default 120s) | Raise the timeout for slow/CPU models, simplify query, or retry |
@@ -295,7 +296,7 @@ This extension complies with the following SPEC requirements:
 - **Cancellation**: Cooperative cancellation via AbortSignal (SPEC §4.10)
 - **Model-agnostic**: Designed for general small agentic models (SPEC §19)
 - **Tests**: Comprehensive test suite with vitest
-- **SPEC Version**: Compliant with docs/SPEC.md incl. §17 known issues, §18 documented deviations (D-001 to D-034; D-011 superseded by D-012, the D-019 `LLMAPIError` note superseded by D-021), and §19 v3 general-model redesign (incl. C-7 description accuracy pass)
+- **SPEC Version**: Compliant with docs/SPEC.md incl. §17 known issues, §18 documented deviations (D-001 to D-043; D-011 superseded by D-012, the D-019 `LLMAPIError` note superseded by D-021), and §19 v3 general-model redesign (incl. C-7 description accuracy pass)
 - **Transient-failure retry**: LLM API 408/429/5xx and network errors are retried twice with backoff (D-023); LLM API failures and empty final responses are reported as flagged errors (`isError: true`, D-021)
 
 > **Verification**: Full test suite: `npm test` and `npm run typecheck`. The v3 redesign surfaces (prompt, descriptions, sampling/timeout configuration) are covered by `tests/integration/prompt.test.ts` and `tests/integration/config.test.ts`; the context-window auto-retry (D-029) is covered by `tests/integration/context-window-retry.test.ts`.

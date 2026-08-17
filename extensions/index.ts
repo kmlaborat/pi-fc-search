@@ -65,9 +65,9 @@ loadEnvFile();
 // executeAgent() — not snapshotted at module load.
 
 /**
- * Validates tool input parameters
+ * Validates tool input parameters (exported for tests)
  */
-function validateInput(args: unknown): {
+export function validateInput(args: unknown): {
   description: string;
   prompt: string;
   max_turns: number;
@@ -80,14 +80,17 @@ function validateInput(args: unknown): {
   const record = args as Record<string, unknown>;
   const { description, prompt, max_turns, use_citation } = record;
 
-  if (typeof description !== "string" || description.length === 0) {
+  if (typeof description !== "string" || description.trim().length === 0) {
+    // (D-043, SPEC §18) a whitespace-only string is missing for all
+    // practical purposes: it would burn the whole turn budget (and timeout
+    // budget) on a search the model cannot possibly answer.
     throw new Error("Missing or invalid 'description' parameter");
   }
   if (description.length > 100) {
     throw new Error("'description' exceeds maximum length of 100 characters");
   }
 
-  if (typeof prompt !== "string" || prompt.length === 0) {
+  if (typeof prompt !== "string" || prompt.trim().length === 0) {
     throw new Error("Missing or invalid 'prompt' parameter");
   }
   if (prompt.length > 2000) {
@@ -192,6 +195,15 @@ export async function executeAgent(
   };
   controller.signal.addEventListener("abort", onControllerAbort, { once: true });
 
+  // (D-041, SPEC §18) minimum remaining timeout budget for the D-029
+  // context-window retry. The retry runs under the SAME total-execution
+  // timeout as the first run, and an overflow is precisely the failure of a
+  // LONG run — so most of the budget is usually already spent. Retrying
+  // with a handful of seconds left would abort mid-retry and surface a
+  // confusing TimeoutError instead of the actionable ContextWindowError.
+  const MIN_RETRY_BUDGET_MS = 30_000;
+  const startedAt = Date.now();
+
   // Resolved from .env + process.env per call (SPEC §15, D-037); fail-fast
   // checks above guarantee endpoint and model are set.
   const options: RunFastContextAgentOptions = {
@@ -223,7 +235,17 @@ export async function executeAgent(
     // automatic. Only attempted when the controller was not aborted and the
     // reduced budget (>= 2 turns) can still plausibly differ from the failed
     // run. If the retry also fails, the ORIGINAL overflow error is reported.
-    if (error instanceof ContextWindowError && !controller.signal.aborted && maxTurns >= 4) {
+    // (D-041, SPEC §18) additionally require a usable remaining slice of
+    // the total-execution timeout (see MIN_RETRY_BUDGET_MS above); the
+    // original overflow error is reported when there is not one.
+    const remainingBudgetMs =
+      FC_CONFIG.timeoutSeconds * 1000 - (Date.now() - startedAt);
+    if (
+      error instanceof ContextWindowError &&
+      !controller.signal.aborted &&
+      maxTurns >= 4 &&
+      remainingBudgetMs >= MIN_RETRY_BUDGET_MS
+    ) {
       const reducedTurns = Math.ceil(maxTurns / 2);
       try {
         return await runFastContextAgent({ ...options, maxTurns: reducedTurns });

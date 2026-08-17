@@ -54,3 +54,16 @@ export class TimeoutError extends Error {
     this.name = "TimeoutError";
   }
 }
+
+// (D-042, SPEC §18) burning the full turn budget (including the D-007
+// forced final turn) without a final answer is a FAILED search, not an
+// answer. It used to resolve with the plain string "No final answer after
+// N turns.", which the extension returned as a successful (isError: false)
+// result — contradicting the D-019 principle that failed searches must be
+// flaggable. The message text is the unchanged Requirement B exit message.
+export class NoFinalAnswerError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "NoFinalAnswerError";
+  }
+}
