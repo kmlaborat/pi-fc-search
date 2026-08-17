@@ -99,6 +99,20 @@ export class ReadTool implements Tool {
         return "Read Tool: file path is required.";
       }
 
+      // (D-032, SPEC §18) Validate the paging parameters before any
+      // filesystem access. The schema declares integers, but LLMs do send
+      // non-integer values: a fractional offset/limit previously produced
+      // fractional line numbers in the output (Grep's head_limit has
+      // validated its integer contract since D-017 — Read now does the
+      // same). `offset < 1` keeps the preserved §8.1 quirk (reads from the
+      // first line); `limit <= 0` keeps its pre-existing error.
+      if (offset !== undefined && !Number.isInteger(offset)) {
+        return "Read Tool: offset must be an integer.";
+      }
+      if (limit !== undefined && (!Number.isInteger(limit) || limit <= 0)) {
+        return "Read Tool: limit must be a positive integer.";
+      }
+
       // Resolve path with Docker-mount style correction for FastContext model outputs
       const absoluteCwd = ctx.cwd;
       let resolvedPath: string;
@@ -183,15 +197,9 @@ export class ReadTool implements Tool {
       // the system prompt template in prompt.ts).
       const lines = content.replace(/\r\n/g, "\n").split("\n");
 
-      // (Review fix) Validate the paging parameters before computing the
-      // range — previously an offset beyond EOF produced a header with zero
-      // lines and a non-positive limit produced an empty range.
-      if (limit !== undefined && limit <= 0) {
-        return "Read Tool: limit must be a positive integer.";
-      }
-
       // Calculate range
-      // SPEC §8.1: offset is 1-indexed; if undefined or < 0, treat as 1.
+      // SPEC §8.1: offset is 1-indexed; if undefined or < 1, treat as 1
+      // (non-integer offsets were rejected earlier — D-032, SPEC §18).
       let startLine = 1;
       if (offset !== undefined && offset > 0) {
         startLine = offset;
@@ -231,8 +239,11 @@ export class ReadTool implements Tool {
         // (D-025, SPEC §18) Enforce the total-output byte budget so a
         // default whole-file read cannot overflow the sub-agent's context
         // window; the note tells the model how to continue reading.
+        // (D-031, SPEC §18) counted with Buffer.byteLength, not string
+        // length: the budget is advertised as bytes, and JS string length
+        // undercounts multi-byte (e.g. CJK) content by up to 3x.
         const numbered = `${i + 1}|${line}`;
-        outputBytes += numbered.length + 1;
+        outputBytes += Buffer.byteLength(numbered, "utf8") + 1;
         if (outputBytes > MAX_READ_OUTPUT_BYTES) {
           byteTruncated = true;
           break;

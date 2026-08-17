@@ -177,3 +177,23 @@ describe("isWithinCwd - Path Containment Tests", () => {
     expect(isWithinCwd("../other/file.ts", cwd)).toBe(false);
   });
 });
+
+describe("Case sensitivity of basename matching (D-033, SPEC §18)", () => {
+  const cwd = REPO_DIR;
+
+  test("case-mismatched repo-name component is corrected only on case-insensitive platforms", () => {
+    // The cwd basename is "pi-fc-search"; "PI-FC-SEARCH" names a different,
+    // non-existent entry on case-sensitive (POSIX) filesystems, so it must
+    // not be "corrected" there. On Windows the default filesystems are
+    // case-insensitive and the correction applies.
+    const mismatched = "/PI-FC-SEARCH/package.json";
+    const result = resolveDockerMountPath(mismatched, cwd);
+
+    if (process.platform === "win32") {
+      expect(result).not.toBeNull();
+      expect(result!.resolved).toBe(resolve(cwd, "package.json"));
+    } else {
+      expect(result).toBeNull();
+    }
+  });
+});

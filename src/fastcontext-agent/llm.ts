@@ -6,7 +6,7 @@
 import { randomUUID } from "crypto";
 import { loadEnvFile } from "./env.js";
 import { DEFAULT_TEMPERATURE } from "./config.js";
-import { CancelledError, LLMAPIError } from "./errors.js";
+import { CancelledError, ContextWindowError, LLMAPIError } from "./errors.js";
 
 // Load environment variables at module initialization (shared, idempotent loader)
 loadEnvFile();
@@ -219,7 +219,10 @@ export class LLMClient {
               lowered.includes("maximum number of tokens") ||
               lowered.includes("context window")
             ) {
-              throw new LLMAPIError(
+              // (D-029, SPEC §18) typed ContextWindowError: the message is the
+              // D-027 text, but the extension now recognizes the failure by
+              // type and retries once with a reduced turn budget.
+              throw new ContextWindowError(
                 "The search conversation exceeded the model's context window. " +
                 "Re-run with a smaller max_turns or a more focused prompt."
               );

@@ -46,6 +46,12 @@ export function isWithinCwd(candidate: string, cwd: string): boolean {
  */
 export function resolveDockerMountPath(originalPath: string, cwd: string): { resolved: string; correction?: string } | null {
   const absCwd = pathResolve(cwd);
+  // (D-033, SPEC §18) filesystem name comparisons are case-insensitive only
+  // on Windows (case-insensitive default filesystems); on POSIX a
+  // case-mismatched component names a different, non-existent entry, so it
+  // must not be "corrected" (every strategy is still existsSync-gated).
+  const ciEqual = (a: string, b: string) =>
+    process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
 
   // Strategy 1: Direct resolution - if the original path resolves within cwd and exists, use it
   const directResolved = pathResolve(absCwd, originalPath);
@@ -60,7 +66,7 @@ export function resolveDockerMountPath(originalPath: string, cwd: string): { res
     // If the first component matches cwd basename, skip to Strategy 3 to avoid duplication
     // e.g., "/test/sample.js" with cwd ".../test" → strip gives "test/sample.js" → would create test/test/
     const firstComponent = stripped.split("/")[0];
-    if (firstComponent && firstComponent.toLowerCase() === path.basename(absCwd).toLowerCase()) {
+    if (firstComponent && ciEqual(firstComponent, path.basename(absCwd))) {
       // Skip this strategy, Strategy 3 will handle it correctly
     } else {
       // Normal case: strip leading slash and resolve relative to cwd.
@@ -94,7 +100,7 @@ export function resolveDockerMountPath(originalPath: string, cwd: string): { res
   const parts = originalPath.split("/").filter(Boolean);
   
   for (let i = 0; i < parts.length; i++) {
-    if (parts[i].toLowerCase() === path.basename(absCwd).toLowerCase()) {
+    if (ciEqual(parts[i], path.basename(absCwd))) {
       // Found repo-name in the path, strip everything up to and including it
       const remaining = parts.slice(i + 1);
       if (remaining.length > 0) {

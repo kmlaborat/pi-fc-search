@@ -25,6 +25,17 @@ export class LLMAPIError extends Error {
   }
 }
 
+// (D-029, SPEC §18) A context-window exceedance (D-027) gets its own typed
+// class so the extension can recognize it by type (not by message text) and
+// retry the search once with a reduced turn budget, instead of relying on
+// the host agent to re-run the tool.
+export class ContextWindowError extends LLMAPIError {
+  constructor(message: string) {
+    super(message);
+    this.name = "ContextWindowError";
+  }
+}
+
 // (D-019, SPEC §18): fatal execution errors are thrown with typed classes
 // instead of being returned as "[ERROR] ..." strings with isError: false.
 // The extension maps them to tool results flagged isError: true so the host

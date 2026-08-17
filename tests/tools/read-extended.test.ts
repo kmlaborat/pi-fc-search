@@ -31,6 +31,13 @@ function setupTestFixtures(): void {
   const wideLines = Array.from({ length: 1500 }, (_, i) => `Line ${i + 1}: ${"W".repeat(180)}`);
   fs.writeFileSync(resolve(TEST_FIXTURES_DIR, "src/wide_file.ts"), wideLines.join("\n"), "utf-8");
 
+  // (D-031, SPEC §18) multi-byte fixture: 1500 lines of 3-byte CJK chars
+  // (~292 KB of UTF-8 bytes, but only ~108 KB of JS string length) — under
+  // byte accounting the 256 KB budget kicks in; under the old string-length
+  // accounting the file would have been returned in full with no note.
+  const cjkLines = Array.from({ length: 1500 }, (_, i) => `Line ${i + 1}: ${"あ".repeat(60)}`);
+  fs.writeFileSync(resolve(TEST_FIXTURES_DIR, "src/cjk_file.ts"), cjkLines.join("\n"), "utf-8");
+
   // Create empty file
   fs.writeFileSync(resolve(TEST_FIXTURES_DIR, "test/empty.txt"), "", "utf-8");
 
@@ -306,6 +313,80 @@ describe("ReadTool - Extended Tests", () => {
       );
       expect(result).not.toContain("output truncated");
       expect(result).toContain("10|");
+    });
+
+    test("should count the budget in UTF-8 bytes, not characters (D-031, SPEC §18)", async () => {
+      const result = await readTool.call(
+        JSON.stringify({ path: resolve(TEST_FIXTURES_DIR, "src/cjk_file.ts") }),
+        { cwd: TEST_FIXTURES_DIR }
+      );
+
+      expect(result).toContain("output truncated");
+
+      // Re-measure the numbered lines exactly as the budget accounts for them:
+      // UTF-8 bytes per line + 1 for the newline. The shown lines must fit the
+      // budget, and the budget must have been nearly exhausted (the loop stops
+      // at the first line that would cross it), which is only true when the
+      // 3-byte CJK content is counted as bytes.
+      const shown = result.split("\n").filter((l) => /^\d+\|/.test(l));
+      const measured = shown.reduce(
+        (acc, l) => acc + Buffer.byteLength(l, "utf8") + 1,
+        0
+      );
+      expect(measured).toBeLessThanOrEqual(MAX_READ_OUTPUT_BYTES);
+      expect(measured).toBeGreaterThan(MAX_READ_OUTPUT_BYTES - 5000);
+      // The old string-length counting would have accumulated only ~108 KB
+      // of "budget" for this file and returned it in full with no note —
+      // the truncation note above (plus a not-fully-shown file) proves the
+      // 3-byte CJK content is now counted as bytes.
+      expect(shown.length).toBeGreaterThan(0);
+      expect(shown.length).toBeLessThan(1500);
+    });
+  });
+
+  describe("Paging parameter validation (D-032, SPEC §18)", () => {
+    test("should reject a non-integer offset", async () => {
+      const result = await readTool.call(
+        JSON.stringify({
+          path: join(TEST_FIXTURES_DIR, "src/ten_lines.ts"),
+          offset: 1.5,
+        }),
+        { cwd: TEST_FIXTURES_DIR }
+      );
+      expect(result).toBe("Read Tool: offset must be an integer.");
+    });
+
+    test("should reject a non-integer limit", async () => {
+      const result = await readTool.call(
+        JSON.stringify({
+          path: join(TEST_FIXTURES_DIR, "src/ten_lines.ts"),
+          limit: 2.5,
+        }),
+        { cwd: TEST_FIXTURES_DIR }
+      );
+      expect(result).toBe("Read Tool: limit must be a positive integer.");
+    });
+
+    test("should still treat offset < 1 as 1 (preserved §8.1 quirk)", async () => {
+      const result = await readTool.call(
+        JSON.stringify({
+          path: join(TEST_FIXTURES_DIR, "src/ten_lines.ts"),
+          offset: -5,
+        }),
+        { cwd: TEST_FIXTURES_DIR }
+      );
+      expect(result).toContain("1|");
+    });
+
+    test("should still reject limit <= 0", async () => {
+      const result = await readTool.call(
+        JSON.stringify({
+          path: join(TEST_FIXTURES_DIR, "src/ten_lines.ts"),
+          limit: 0,
+        }),
+        { cwd: TEST_FIXTURES_DIR }
+      );
+      expect(result).toBe("Read Tool: limit must be a positive integer.");
     });
   });
 });

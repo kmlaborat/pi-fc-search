@@ -10,6 +10,7 @@
  */
 
 export const DEFAULT_TEMPERATURE = 0.2;
+export const DEFAULT_TOP_P = 0.95;
 export const DEFAULT_MAX_TOKENS = 32000;
 export const DEFAULT_TIMEOUT_SECONDS = 120;
 
@@ -18,6 +19,10 @@ export interface FastContextEnvConfig {
   apiKey: string;
   baseUrl: string;
   temperature: number;
+  // (D-030, SPEC §18) top_p was a code constant (0.95) while the other v3
+  // sampling settings were operator-configurable; FASTCONTEXT_TOP_P closes
+  // that gap.
+  topP: number;
   maxTokens: number;
   timeoutSeconds: number;
 }
@@ -90,6 +95,12 @@ export function loadFastContextConfig(): FastContextEnvConfig {
       DEFAULT_TEMPERATURE,
       "FASTCONTEXT_TEMPERATURE",
       (n) => Number.isFinite(n) && n >= 0 && n <= 2
+    ),
+    topP: parseNumber(
+      process.env.FASTCONTEXT_TOP_P,
+      DEFAULT_TOP_P,
+      "FASTCONTEXT_TOP_P",
+      (n) => Number.isFinite(n) && n >= 0 && n <= 1
     ),
     maxTokens: parseNumber(
       process.env.FASTCONTEXT_MAX_TOKENS,

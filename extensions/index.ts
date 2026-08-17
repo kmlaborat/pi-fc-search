@@ -11,7 +11,7 @@ import { runFastContextAgent, RunFastContextAgentOptions } from "../src/fastcont
 import { loadEnvFile } from "../src/fastcontext-agent/env.js";
 import { loadFastContextConfig, validateEndpointUrl } from "../src/fastcontext-agent/config.js";
 import type { FastContextEnvConfig } from "../src/fastcontext-agent/config.js";
-import { CancelledError, ConfigurationError, TimeoutError } from "../src/fastcontext-agent/errors.js";
+import { CancelledError, ConfigurationError, ContextWindowError, TimeoutError } from "../src/fastcontext-agent/errors.js";
 
 // Tool input schema (JSON Schema format - zero external dependencies)
 const SearchToolSchema = {
@@ -124,7 +124,7 @@ function validateInput(args: unknown): {
  * Executes fastcontext agent in-process with timeout protection.
  * Uses AbortSignal for both timeout and user cancellation (SPEC §4.10).
  */
-async function executeAgent(
+export async function executeAgent(
   prompt: string,
   cwd: string,
   signal?: AbortSignal,
@@ -199,6 +199,9 @@ async function executeAgent(
       apiKey: FC_CONFIG.apiKey,
       baseUrl: FC_CONFIG.baseUrl,
       temperature: FC_CONFIG.temperature,
+      // (D-030, SPEC §18) top_p is now operator-configurable (FASTCONTEXT_TOP_P)
+      // like the other v3 sampling settings.
+      topP: FC_CONFIG.topP,
       maxTokens: FC_CONFIG.maxTokens,
     }
   };
@@ -206,6 +209,22 @@ async function executeAgent(
   try {
     return await runFastContextAgent(options);
   } catch (error) {
+    // (D-029, SPEC §18) The history is unbounded by design, so long searches
+    // against small models can exceed the context window mid-run (D-027).
+    // Retry ONCE with the turn budget halved — fewer turns accumulate fewer
+    // tool results, which is the operator-recommended mitigation made
+    // automatic. Only attempted when the controller was not aborted and the
+    // reduced budget (>= 2 turns) can still plausibly differ from the failed
+    // run. If the retry also fails, the ORIGINAL overflow error is reported.
+    if (error instanceof ContextWindowError && !controller.signal.aborted && maxTurns >= 4) {
+      const reducedTurns = Math.ceil(maxTurns / 2);
+      try {
+        return await runFastContextAgent({ ...options, maxTurns: reducedTurns });
+      } catch {
+        // Fall through and report the original overflow error below.
+      }
+    }
+
     // Determine why the abort fired. `AbortSignal.reason` may be an Error,
     // a string, or anything else — normalize it.
     const reason = controller.signal.reason;
