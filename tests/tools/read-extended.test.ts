@@ -3,7 +3,7 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'vitest';
-import { ReadTool, MAX_FILE_SIZE_BYTES } from '../../src/fastcontext-agent/tools/read.js';
+import { ReadTool, MAX_FILE_SIZE_BYTES, MAX_READ_OUTPUT_BYTES } from '../../src/fastcontext-agent/tools/read.js';
 import { join, resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import * as fs from "fs";
@@ -25,6 +25,11 @@ function setupTestFixtures(): void {
   // Create file with very long lines (>2000 chars)
   const longLine = "X".repeat(2500);
   fs.writeFileSync(resolve(TEST_FIXTURES_DIR, "src/long_line.ts"), `Short line\n${longLine}\nAnother short line\n`, "utf-8");
+
+  // Create a file that exceeds the 256 KB output budget (D-025):
+  // 1500 lines x ~190 chars ≈ 285 KB (each line < 2000 chars, file < 10 MB)
+  const wideLines = Array.from({ length: 1500 }, (_, i) => `Line ${i + 1}: ${"W".repeat(180)}`);
+  fs.writeFileSync(resolve(TEST_FIXTURES_DIR, "src/wide_file.ts"), wideLines.join("\n"), "utf-8");
 
   // Create empty file
   fs.writeFileSync(resolve(TEST_FIXTURES_DIR, "test/empty.txt"), "", "utf-8");
@@ -254,6 +259,53 @@ describe("ReadTool - Extended Tests", () => {
         fs.unlinkSync(linkPath);
         fs.rmSync(OUTSIDE_DIR, { recursive: true, force: true });
       }
+    });
+  });
+
+  describe("Output byte budget (D-025, SPEC §18)", () => {
+    test("should truncate total output at MAX_READ_OUTPUT_BYTES with a continuation note", async () => {
+      const result = await readTool.call(
+        JSON.stringify({ path: resolve(TEST_FIXTURES_DIR, "src/wide_file.ts") }),
+        { cwd: TEST_FIXTURES_DIR }
+      );
+
+      expect(result).toContain(`output truncated at ${MAX_READ_OUTPUT_BYTES} bytes`);
+      expect(result).toContain("re-read with a larger offset and limit");
+      // The whole tool result stays comfortably under the fixture's raw size
+      expect(result.length).toBeLessThan(300 * 1024);
+      // The header must reflect the lines actually shown, not the full range
+      const m = /wide_file\.ts:(\d+)-(\d+)/.exec(result);
+      expect(m).not.toBeNull();
+      expect(Number(m![2])).toBeGreaterThanOrEqual(1);
+      expect(Number(m![2])).toBeLessThan(1500);
+    });
+
+    test("should continue where the truncated read stopped", async () => {
+      const first = await readTool.call(
+        JSON.stringify({ path: resolve(TEST_FIXTURES_DIR, "src/wide_file.ts") }),
+        { cwd: TEST_FIXTURES_DIR }
+      );
+      const shownEnd = Number(/wide_file\.ts:\d+-(\d+)/.exec(first)![1]);
+
+      const second = await readTool.call(
+        JSON.stringify({
+          path: resolve(TEST_FIXTURES_DIR, "src/wide_file.ts"),
+          offset: shownEnd + 1,
+          limit: 10,
+        }),
+        { cwd: TEST_FIXTURES_DIR }
+      );
+      expect(second).toContain(`${shownEnd + 1}|`);
+      expect(second).not.toContain("output truncated");
+    });
+
+    test("should not truncate small files", async () => {
+      const result = await readTool.call(
+        JSON.stringify({ path: resolve(TEST_FIXTURES_DIR, "src/ten_lines.ts") }),
+        { cwd: TEST_FIXTURES_DIR }
+      );
+      expect(result).not.toContain("output truncated");
+      expect(result).toContain("10|");
     });
   });
 });

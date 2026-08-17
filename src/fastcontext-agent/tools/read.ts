@@ -25,12 +25,18 @@ export const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
 // (D-020, SPEC §18) NUL-byte probe window for binary detection.
 const BINARY_PROBE_BYTES = 8192;
 
+// (D-025, SPEC §18) Hard cap on total Read output. The 2000-line and
+// 2000-char limits still allow a ~4 MB worst-case result (2000 x 2000),
+// which would overflow the context window of the small models this package
+// targets. The cap truncates the output and tells the model how to continue.
+export const MAX_READ_OUTPUT_BYTES = 256 * 1024; // 256 KB
+
 // Read tool description (verbatim from Python source)
 const READ_DESCRIPTION = `Reads a file from the local filesystem. You can access any file directly by using this tool.
 If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.
 
 Usage:
-- You can optionally specify a line offset and limit (especially handy for long files), but it's recommended to read the whole file by not providing these parameters
+- You can optionally specify a line offset and limit (especially handy for long files). Total output is capped at 256 KB: if the output ends with a byte-truncation note, continue with a larger offset
 - Lines in the output are numbered starting at 1, using following format: LINE_NUMBER|LINE_CONTENT
 - You have the capability to call multiple tools in a single response. It is always better to speculatively read multiple files as a batch that are potentially useful.
 - If you read a file that exists but has empty contents you will receive 'File is empty.'
@@ -210,7 +216,10 @@ export class ReadTool implements Tool {
 
       // Build output with line numbers and prefixes
       const outputLines: string[] = [];
-      
+      let outputBytes = 0;
+      let lastShownLine = startLine - 1;
+      let byteTruncated = false;
+
       for (let i = startLine - 1; i < endLine && i < lines.length; i++) {
         let line = lines[i];
         
@@ -218,17 +227,32 @@ export class ReadTool implements Tool {
         if (line.length > MAX_LINE_LENGTH) {
           line = line.slice(0, MAX_LINE_LENGTH) + "...";
         }
-        
-        outputLines.push(`${i + 1}|${line}`);
+
+        // (D-025, SPEC §18) Enforce the total-output byte budget so a
+        // default whole-file read cannot overflow the sub-agent's context
+        // window; the note tells the model how to continue reading.
+        const numbered = `${i + 1}|${line}`;
+        outputBytes += numbered.length + 1;
+        if (outputBytes > MAX_READ_OUTPUT_BYTES) {
+          byteTruncated = true;
+          break;
+        }
+
+        outputLines.push(numbered);
+        lastShownLine = i + 1;
       }
 
       // Add truncation indicator if needed
       if (totalLinesToRead > MAX_LINE) {
         outputLines.push("...");
       }
+      if (byteTruncated) {
+        outputLines.push(`... (output truncated at ${MAX_READ_OUTPUT_BYTES} bytes; re-read with a larger offset and limit to continue)`);
+      }
 
       const joinedContent = outputLines.join("\n");
-      return `${correctionNote}\`\`\`${resolvedPath}:${startLine}-${endLine}\n${joinedContent}\n\`\`\``;
+      const headerEnd = byteTruncated ? lastShownLine : endLine;
+      return `${correctionNote}\`\`\`${resolvedPath}:${startLine}-${headerEnd}\n${joinedContent}\n\`\`\``;
     } catch (error) {
       return `Read Tool error: ${error instanceof Error ? error.message : "Unknown error"}`;
     }

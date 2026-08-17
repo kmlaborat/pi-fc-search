@@ -13,6 +13,12 @@ import { runRipgrep } from "./rg.js";
 // See the limit computation in call() for rationale.
 const MAX_GREP_HEAD_LIMIT = 2000;
 
+// (D-024, SPEC §18) rg output lines are unbounded in length: a match inside
+// a minified bundle or log file produces a single megabyte-scale line that
+// would land in the sub-agent's context verbatim. Truncate at the same
+// per-line budget the Read tool applies (MAX_LINE_LENGTH, SPEC §8.1).
+export const GREP_MAX_LINE_LENGTH = 2000;
+
 const GREP_DESCRIPTION = `A powerful search tool built on ripgrep
 Usage:
 - Prefer using Grep for search tasks when you know the exact symbols or strings to search for. Whenever possible, use this tool instead of invoking grep or rg as a terminal command.
@@ -22,6 +28,7 @@ Usage:
 - Pattern syntax: Uses ripgrep (not grep) - literal braces need escaping (use interface\\{\\} to find interface{} in Go code)
 - Multiline matching: By default patterns match within single lines only. For cross-line patterns like struct \\{[\\s\\S]*?field, use multiline: true
 - Results are capped to 100 output lines by default; pass head_limit (up to 2000) to request more. When truncation occurs, the output ends with a "Results truncated to first N lines" note. (SPEC §19 v3: the v2 text claimed "several thousand" lines, contradicting the actual 100/2000 caps.)
+- Individual output lines longer than 2000 characters are truncated to 2000 characters with '...' appended (minified files can produce very long match lines).
 - Content output formatting closely follows ripgrep output format: '-' for context lines, ':' for match lines, and all context/match lines below each file group.`;
 
 // Ripgrep arguments interface
@@ -232,13 +239,20 @@ export class GrepTool implements Tool {
         limit = Math.min(rgArgs.headLimit, MAX_GREP_HEAD_LIMIT);
       }
 
-      const lines = output.split("\n");
+      // (D-024, SPEC §18) Cap per-line length BEFORE the line-count limit so
+      // one pathological line cannot blow the sub-agent's context window
+      // (same 2000-char budget as the Read tool, SPEC §8.1).
+      const lines = output.split("\n").map((line) =>
+        line.length > GREP_MAX_LINE_LENGTH
+          ? line.slice(0, GREP_MAX_LINE_LENGTH) + "..."
+          : line
+      );
       if (lines.length > limit) {
         const truncatedLines = lines.slice(0, limit);
         return `${correctionNote}${truncatedLines.join("\n") + `\nResults truncated to first ${limit} lines`}`;
       }
 
-      return `${correctionNote}${output.trim()}`;
+      return `${correctionNote}${lines.join("\n").trim()}`;
     } catch (error) {
       return error instanceof Error ? error.message : "Unknown error";
     }

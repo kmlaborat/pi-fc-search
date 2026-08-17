@@ -9,7 +9,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import * as path from "path";
 import { runFastContextAgent, RunFastContextAgentOptions } from "../src/fastcontext-agent/index.js";
 import { loadEnvFile } from "../src/fastcontext-agent/env.js";
-import { loadFastContextConfig } from "../src/fastcontext-agent/config.js";
+import { loadFastContextConfig, validateEndpointUrl } from "../src/fastcontext-agent/config.js";
 import type { FastContextEnvConfig } from "../src/fastcontext-agent/config.js";
 import { CancelledError, ConfigurationError, TimeoutError } from "../src/fastcontext-agent/errors.js";
 
@@ -142,6 +142,16 @@ async function executeAgent(
   if (!FC_CONFIG.baseUrl) {
     throw new ConfigurationError(
       "FASTCONTEXT_ENDPOINT is not configured. Set it in pi-fc-search/.env (see .env.example) or as a shell environment variable."
+    );
+  }
+  // (D-026, SPEC §18) Fail fast on an endpoint that is not an absolute
+  // http(s) URL: otherwise fetch throws a parse TypeError on every attempt
+  // and the D-023 retry loop misreports it as a transient network failure
+  // after two wasted retries and backoffs.
+  const endpointUrlError = validateEndpointUrl(FC_CONFIG.baseUrl);
+  if (endpointUrlError) {
+    throw new ConfigurationError(
+      `${endpointUrlError} Set it in pi-fc-search/.env (see .env.example) or as a shell environment variable.`
     );
   }
   if (!FC_CONFIG.model) {
@@ -278,9 +288,24 @@ export default function (pi: ExtensionAPI) {
         useCitation?: boolean
       ) => ({ description: d, promptLength, max_turns: maxTurns, use_citation: useCitation });
 
+      // Keep whatever search metadata was already validated so error results
+      // carry it too (easier host-side diagnostics than empty details).
+      let meta: {
+        description?: string;
+        promptLength?: number;
+        maxTurns?: number;
+        useCitation?: boolean;
+      } = {};
+
       try {
         const validated = validateInput(params);
         const { description, prompt, max_turns, use_citation } = validated;
+        meta = {
+          description,
+          promptLength: prompt.length,
+          maxTurns: max_turns,
+          useCitation: use_citation,
+        };
 
         const report = (text: string) => {
           onUpdate?.({
@@ -319,13 +344,13 @@ export default function (pi: ExtensionAPI) {
           // Return non-error response for user cancellation (SPEC §6)
           return {
             content: [{ type: "text", text: "Search was cancelled" }],
-            details: details(),
+            details: details(meta.description, meta.promptLength, meta.maxTurns, meta.useCitation),
             isError: false,
           };
         }
         return {
           content: [{ type: "text", text: `[ERROR] ${error instanceof Error ? error.message : "Unknown error"}` }],
-          details: details(),
+          details: details(meta.description, meta.promptLength, meta.maxTurns, meta.useCitation),
           isError: true,
         };
       }

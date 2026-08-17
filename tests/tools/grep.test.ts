@@ -152,6 +152,28 @@ describe("GrepTool", () => {
     expect(result).toContain("Permission error");
   });
 
+  test("should truncate output lines longer than 2000 characters (D-024, SPEC §18)", async () => {
+    const file = join(TEST_FIXTURES_DIR, "minified.js");
+    fs.writeFileSync(file, `var x = ${"A".repeat(5000)};\n`, "utf-8");
+
+    const result = await grepTool.call(
+      JSON.stringify({
+        pattern: "var x",
+        path: file,
+        output_mode: "content"
+      }),
+      { cwd: TEST_FIXTURES_DIR }
+    );
+
+    // The 5000-char match line must not survive verbatim
+    expect(result).not.toContain("A".repeat(2001));
+    expect(result).toContain("...");
+    // Every returned line is bounded by the 2000-char cap + "..."
+    for (const line of result.split("\n")) {
+      expect(line.length).toBeLessThanOrEqual(2003);
+    }
+  });
+
   test("should add helpful hint for malformed regex patterns", async () => {
     // Use a pattern with a stray closing parenthesis that will cause ripgrep to return a regex parse error
     const result = await grepTool.call(

@@ -47,6 +47,39 @@ function parseNumber(
  * Invalid numeric values fall back to defaults with a console warning
  * (a misconfigured .env must not break extension startup).
  */
+/**
+ * Validate a candidate FASTCONTEXT_ENDPOINT value.
+ *
+ * (D-026, SPEC §18) An endpoint that is not an absolute http(s) URL (e.g.
+ * a missing scheme: "example.com/v1") makes fetch throw a TypeError on
+ * every attempt — which the D-023 retry loop would misclassify as a
+ * transient network failure, burn two retries and backoffs, and finally
+ * report as "LLM API call failed: Failed to parse URL". Validating at the
+ * extension's fail-fast point instead turns the misconfiguration into an
+ * immediate, actionable ConfigurationError.
+ *
+ * Returns null when the value is a valid http(s) base URL, otherwise an
+ * actionable error message.
+ */
+export function validateEndpointUrl(value: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    return (
+      `FASTCONTEXT_ENDPOINT="${value}" is not a valid URL. ` +
+      `It must be an absolute http(s) base URL such as https://host:port/v1.`
+    );
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return (
+      `FASTCONTEXT_ENDPOINT="${value}" uses protocol "${url.protocol}"; ` +
+      `only http:// and https:// endpoints are supported.`
+    );
+  }
+  return null;
+}
+
 export function loadFastContextConfig(): FastContextEnvConfig {
   return {
     model: process.env.FASTCONTEXT_MODEL || "",

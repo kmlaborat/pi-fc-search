@@ -291,3 +291,42 @@ describe("LLMClient - transient failure retry (D-023, SPEC §18)", () => {
     expect((init.headers as Record<string, string>)["Authorization"]).toBe("Bearer secret");
   });
 });
+
+describe("LLMClient - context overflow surfacing (D-027, SPEC §18)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const contextOverflow = (status: number, body: string) =>
+    ({ ok: false, status, text: () => Promise.resolve(body) }) as any;
+
+  test("maps a 400 context-length error to an actionable message without retrying", async () => {
+    mockFetch.mockResolvedValue(
+      contextOverflow(400, "This model's maximum context length is 8192 tokens; however, you requested 12000 tokens.")
+    );
+    const c = new LLMClient("m", "k", "http://x/v1", { retry_delay_ms: 1 });
+
+    await expect(c.acall([{ role: "user", content: "hi" }])).rejects.toThrow(
+      /exceeded the model's context window/
+    );
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  test("maps a 413 too-many-tokens error the same way", async () => {
+    mockFetch.mockResolvedValue(contextOverflow(413, "Payload too large: too many tokens"));
+    const c = new LLMClient("m", "k", "http://x/v1", { retry_delay_ms: 1 });
+
+    await expect(c.acall([{ role: "user", content: "hi" }])).rejects.toThrow(/context window/);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not rewrite other 400 errors", async () => {
+    mockFetch.mockResolvedValue(contextOverflow(400, "Invalid value for 'temperature'"));
+    const c = new LLMClient("m", "k", "http://x/v1", { retry_delay_ms: 1 });
+
+    await expect(c.acall([{ role: "user", content: "hi" }])).rejects.toThrow(
+      /LLM API call failed \(400\)/
+    );
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+});

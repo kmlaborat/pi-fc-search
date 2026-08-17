@@ -204,6 +204,27 @@ export class LLMClient {
 
         if (!response.ok) {
           const errorText = await response.text();
+          // (D-027, SPEC §18) A 400/413 caused by the conversation exceeding
+          // the model's context window is a distinct, common failure for the
+          // small models this package targets (the history is unbounded by
+          // design). Surface an actionable message instead of the raw server
+          // body, which small-model servers phrase inconsistently.
+          if (response.status === 400 || response.status === 413) {
+            const lowered = errorText.toLowerCase();
+            if (
+              lowered.includes("context length") ||
+              lowered.includes("context_length") ||
+              lowered.includes("maximum context") ||
+              lowered.includes("too many tokens") ||
+              lowered.includes("maximum number of tokens") ||
+              lowered.includes("context window")
+            ) {
+              throw new LLMAPIError(
+                "The search conversation exceeded the model's context window. " +
+                "Re-run with a smaller max_turns or a more focused prompt."
+              );
+            }
+          }
           const error = new LLMAPIError(`LLM API call failed (${response.status}): ${errorText}`);
           if (RETRYABLE_STATUSES.has(response.status) && attempt < MAX_ATTEMPTS) {
             lastError = error;

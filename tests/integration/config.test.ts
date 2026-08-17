@@ -5,6 +5,7 @@
 import { describe, test, expect, afterEach } from 'vitest';
 import {
   loadFastContextConfig,
+  validateEndpointUrl,
   DEFAULT_TEMPERATURE,
   DEFAULT_MAX_TOKENS,
   DEFAULT_TIMEOUT_SECONDS,
@@ -85,5 +86,24 @@ describe("loadFastContextConfig (SPEC §15.4)", () => {
     clearAll();
     process.env.FASTCONTEXT_TEMPERATURE = "9";
     expect(loadFastContextConfig().temperature).toBe(DEFAULT_TEMPERATURE);
+  });
+});
+
+describe("validateEndpointUrl (D-026, SPEC §18)", () => {
+  test("accepts http(s) base URLs", () => {
+    expect(validateEndpointUrl("https://example.com/v1")).toBeNull();
+    expect(validateEndpointUrl("http://localhost:8080")).toBeNull();
+    expect(validateEndpointUrl("  https://example.com/v1  ")).toBeNull();
+  });
+
+  test("rejects values that are not absolute URLs", () => {
+    expect(validateEndpointUrl("example.com/v1")).toMatch(/not a valid URL/);
+    expect(validateEndpointUrl("")).toMatch(/not a valid URL/);
+    expect(validateEndpointUrl("not a url at all")).toMatch(/not a valid URL/);
+  });
+
+  test("rejects non-http(s) protocols", () => {
+    expect(validateEndpointUrl("ftp://example.com")).toMatch(/only http/);
+    expect(validateEndpointUrl("file:///etc/passwd")).toMatch(/only http/);
   });
 });

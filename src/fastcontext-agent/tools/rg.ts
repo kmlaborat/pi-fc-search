@@ -6,9 +6,12 @@
 import { spawn, spawnSync } from "child_process";
 import { existsSync } from "fs";
 
-const _cachedRgPath: { value?: string; error?: Error; resolved: boolean } = {
+// (D-028, SPEC §18) only successful resolutions are cached: a failed
+// resolution (e.g. a stale RIPGREP_PATH that is later fixed, or a
+// transiently unavailable bundled module) must be retried on the next
+// call instead of being replayed forever.
+const _cachedRgPath: { value?: string; resolved: boolean } = {
   value: undefined,
-  error: undefined,
   resolved: false,
 };
 
@@ -20,77 +23,61 @@ const _cachedRgPath: { value?: string; error?: Error; resolved: boolean } = {
  * 3. System PATH (via which/where command, no shell:true)
  */
 export async function getRgPath(): Promise<string> {
-  // Return cached result if available
+  // Return cached result if available (successes only — see D-028)
   if (_cachedRgPath.resolved) {
-    if (_cachedRgPath.error) throw _cachedRgPath.error;
     return _cachedRgPath.value!;
   }
 
-  try {
-    // 1. Environment variable (highest priority, SPEC §10.1).
-    // (D-015, SPEC §18): validate existence and cache the outcome like the
-    // other strategies — a stale value must fail fast with an actionable
-    // message instead of surfacing later as an opaque spawn error, and the
-    // resolution must not be re-run on every tool call.
-    const envRg = process.env.RIPGREP_PATH;
-    if (envRg) {
-      if (!existsSync(envRg)) {
-        const error = new Error(`RIPGREP_PATH is set to \`${envRg}\`, which does not exist.`);
-        _cachedRgPath.error = error;
-        _cachedRgPath.resolved = true;
-        throw error;
-      }
-      _cachedRgPath.value = envRg;
-      _cachedRgPath.resolved = true;
-      return envRg;
+  // 1. Environment variable (highest priority, SPEC §10.1).
+  // (D-015, SPEC §18): validate existence so a stale value fails fast with
+  // an actionable message instead of surfacing later as an opaque spawn
+  // error. (D-028, SPEC §18): the failure is NOT cached — only a successful
+  // resolution is, so a fixed RIPGREP_PATH takes effect on the next call
+  // within the same process.
+  const envRg = process.env.RIPGREP_PATH;
+  if (envRg) {
+    if (!existsSync(envRg)) {
+      throw new Error(`RIPGREP_PATH is set to \`${envRg}\`, which does not exist.`);
     }
-
-    // 2. Bundled from @vscode/ripgrep (recommended)
-    try {
-      const rgModule = await import("@vscode/ripgrep");
-      if (rgModule.rgPath) {
-        _cachedRgPath.value = rgModule.rgPath;
-        _cachedRgPath.resolved = true;
-        return rgModule.rgPath;
-      }
-    } catch (error) {
-      console.warn("[fastcontext] Warning: Failed to load @vscode/ripgrep, trying system PATH");
-    }
-
-    // 3. System PATH fallback - no shell:true as per SPEC A.7
-    const command = process.platform === "win32" ? "where" : "which";
-
-    try {
-      const result = spawnSync(command, ["rg"], { shell: false });
-      if (result.status === 0) {
-        // On Windows, `where` can return multiple paths - use the first one
-        const output = result.stdout.toString().trim();
-        const pathResult = output.split(/\r?\n/)[0].trim();
-        if (pathResult) {
-          console.warn(`[fastcontext] Warning: Using system ripgrep from ${pathResult}`);
-          _cachedRgPath.value = pathResult;
-          _cachedRgPath.resolved = true;
-          return pathResult;
-        }
-      }
-    } catch {
-      // Ignore fallback errors
-    }
-
-    const error = new Error("Ripgrep not found. Install @vscode/ripgrep or ensure 'rg' is on PATH.");
-    _cachedRgPath.error = error;
+    _cachedRgPath.value = envRg;
     _cachedRgPath.resolved = true;
-    throw error;
-  } catch (error) {
-    if (error instanceof Error) {
-      _cachedRgPath.error = error;
-    } else {
-      const wrapped = new Error(String(error));
-      _cachedRgPath.error = wrapped;
-    }
-    _cachedRgPath.resolved = true;
-    throw (_cachedRgPath.error as Error);
+    return envRg;
   }
+
+  // 2. Bundled from @vscode/ripgrep (recommended)
+  try {
+    const rgModule = await import("@vscode/ripgrep");
+    if (rgModule.rgPath) {
+      _cachedRgPath.value = rgModule.rgPath;
+      _cachedRgPath.resolved = true;
+      return rgModule.rgPath;
+    }
+  } catch (error) {
+    console.warn("[fastcontext] Warning: Failed to load @vscode/ripgrep, trying system PATH");
+  }
+
+  // 3. System PATH fallback - no shell:true as per SPEC A.7
+  const command = process.platform === "win32" ? "where" : "which";
+
+  try {
+    const result = spawnSync(command, ["rg"], { shell: false });
+    if (result.status === 0) {
+      // On Windows, `where` can return multiple paths - use the first one
+      const output = result.stdout.toString().trim();
+      const pathResult = output.split(/\r?\n/)[0].trim();
+      if (pathResult) {
+        console.warn(`[fastcontext] Warning: Using system ripgrep from ${pathResult}`);
+        _cachedRgPath.value = pathResult;
+        _cachedRgPath.resolved = true;
+        return pathResult;
+      }
+    }
+  } catch {
+    // Ignore fallback errors
+  }
+
+  // (D-028, SPEC §18): not cached — the next call retries resolution.
+  throw new Error("Ripgrep not found. Install @vscode/ripgrep or ensure 'rg' is on PATH.");
 }
 
 /**
