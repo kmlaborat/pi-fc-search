@@ -153,7 +153,7 @@ describe("GrepTool - Extended Tests", () => {
   });
 
   describe("Head limit handling", () => {
-    test("should apply head_limit of 0 (no limit)", async () => {
+    test("should reject head_limit of 0 with an actionable message (D-017, SPEC §18)", async () => {
       const result = await grepTool.call(
         JSON.stringify({
           pattern: "export",
@@ -164,8 +164,23 @@ describe("GrepTool - Extended Tests", () => {
         { cwd: TEST_FIXTURES_DIR }
       );
 
-      // head_limit 0 means no additional limit (use default 100)
-      expect(result).toBeDefined();
+      // (D-017) 0 is no longer silently remapped to the default 100
+      expect(result).toContain("head_limit must be a positive integer");
+      expect(result).toContain("Omit head_limit for the default (100 lines)");
+    });
+
+    test("should reject negative head_limit (D-017, SPEC §18)", async () => {
+      const result = await grepTool.call(
+        JSON.stringify({
+          pattern: "export",
+          path: join(TEST_FIXTURES_DIR, "many_matches.ts"),
+          output_mode: "content",
+          head_limit: -5
+        }),
+        { cwd: TEST_FIXTURES_DIR }
+      );
+
+      expect(result).toContain("head_limit must be a positive integer");
     });
 
     test("should apply head_limit less than 100", async () => {

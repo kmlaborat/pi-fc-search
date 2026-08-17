@@ -105,8 +105,11 @@ export class GrepTool implements Tool {
       },
       head_limit: {
         type: "number",
-        minimum: 0,
-        description: 'Limit output to first N lines/entries, equivalent to "| head -N". Works across all output modes: content (limits output lines), files_with_matches (limits file paths), count (limits count entries). When unspecified, the first 100 lines are shown.'
+        minimum: 1,
+        // (D-017, SPEC §18) minimum moved from 0 to 1: 0 (and negative
+        // values) are now rejected with an actionable message instead of
+        // being silently remapped to the default 100.
+        description: 'Limit output to first N lines/entries (positive integer, max 2000), equivalent to "| head -N". Works across all output modes: content (limits output lines), files_with_matches (limits file paths), count (limits count entries). When unspecified, the first 100 lines are shown.'
       },
       multiline: {
         type: "boolean",
@@ -154,6 +157,17 @@ export class GrepTool implements Tool {
         headLimit: parsed.head_limit,
         multiline: parsed.multiline || false
       };
+
+      // (D-017, SPEC §18) Reject head_limit <= 0 with an actionable message
+      // instead of silently remapping it to the default 100. The old `> 0`
+      // guard in the limit computation below reintroduced, for the degenerate
+      // value 0, exactly the silent-remapping failure mode D-010 removed for
+      // values >= 100: a model requesting 0 (most plausibly "no limit")
+      // received 100 with no explanation. Naming the two valid options lets
+      // the model self-correct in one turn. Validated before spawning rg.
+      if (rgArgs.headLimit !== undefined && rgArgs.headLimit <= 0) {
+        return "Grep Tool: head_limit must be a positive integer. Omit head_limit for the default (100 lines), or use a value up to 2000.";
+      }
 
       // Resolve path with Docker-mount style correction for FastContext model outputs
       let resolvedPath: string;
