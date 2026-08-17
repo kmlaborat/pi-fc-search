@@ -1,6 +1,6 @@
 {
   "name": "pi-fc-search",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "type": "module",
   "license": "MIT",
   "description": "Pi extension package for fastcontext repository search",
