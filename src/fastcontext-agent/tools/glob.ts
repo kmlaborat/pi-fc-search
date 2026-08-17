@@ -78,8 +78,18 @@ export class GlobTool implements Tool {
         resolvedDirectory = dockerResolution.resolved;
         pathCorrection = dockerResolution.correction;
       } else {
-        // Fall back to standard resolution
-        resolvedDirectory = resolve(directory);
+        // Fall back to standard resolution.
+        // (Review fix) resolve against the tool's working directory, not the
+        // Node process cwd (same rationale as the Read tool).
+        resolvedDirectory = resolve(ctx.cwd, directory);
+      }
+
+      // Check containment within working directory (SPEC §12) BEFORE any
+      // filesystem access — the old order leaked existence/typo information
+      // for paths outside the working directory and was inconsistent with
+      // the Read and Grep tools.
+      if (!isWithinCwd(resolvedDirectory, ctx.cwd)) {
+        return `Permission error: \`${resolvedDirectory}\` is not within the working directory \`${ctx.cwd}\`.`;
       }
 
       // Validate directory
@@ -90,11 +100,6 @@ export class GlobTool implements Tool {
       const stat = statSync(resolvedDirectory);
       if (!stat.isDirectory()) {
         return `The directory \`${resolvedDirectory}\` is not a directory.`;
-      }
-
-      // Check containment within working directory (SPEC §12)
-      if (!isWithinCwd(resolvedDirectory, ctx.cwd)) {
-        return `Permission error: \`${resolvedDirectory}\` is not within the working directory \`${ctx.cwd}\`.`;
       }
 
       const correctionNote = pathCorrection ? `[${pathCorrection}]\n` : "";

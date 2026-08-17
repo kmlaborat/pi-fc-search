@@ -183,6 +183,22 @@ describe("GrepTool - Extended Tests", () => {
       expect(result).toContain("head_limit must be a positive integer");
     });
 
+    test("should reject non-integer head_limit (review fix)", async () => {
+      const result = await grepTool.call(
+        JSON.stringify({
+          pattern: "export",
+          path: join(TEST_FIXTURES_DIR, "many_matches.ts"),
+          output_mode: "content",
+          head_limit: 1.5
+        }),
+        { cwd: TEST_FIXTURES_DIR }
+      );
+
+      // The schema declares an integer; 1.5 must be rejected rather than
+      // silently integer-coerced by Array.slice.
+      expect(result).toContain("head_limit must be a positive integer");
+    });
+
     test("should apply head_limit less than 100", async () => {
       const result = await grepTool.call(
         JSON.stringify({

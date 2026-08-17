@@ -3,7 +3,7 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'vitest';
-import { ReadTool } from '../../src/fastcontext-agent/tools/read.js';
+import { ReadTool, MAX_FILE_SIZE_BYTES } from '../../src/fastcontext-agent/tools/read.js';
 import { join, resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import * as fs from "fs";
@@ -171,6 +171,89 @@ describe("ReadTool - Extended Tests", () => {
       );
 
       expect(result).toContain("does not exist");
+    });
+  });
+
+  describe("Size and binary guards (D-020, SPEC §18)", () => {
+    const OUTSIDE_DIR = resolve(TEST_FIXTURES_DIR, "..", "__test_fixtures_read_outside__");
+
+    test("should reject files larger than MAX_FILE_SIZE_BYTES", async () => {
+      const bigPath = join(TEST_FIXTURES_DIR, "src/huge_file.txt");
+      fs.writeFileSync(bigPath, Buffer.alloc(MAX_FILE_SIZE_BYTES + 1).fill(65));
+      try {
+        const result = await readTool.call(
+          JSON.stringify({ path: bigPath }),
+          { cwd: TEST_FIXTURES_DIR }
+        );
+        expect(result).toContain("too large");
+        expect(result).toContain("Use Grep");
+      } finally {
+        fs.unlinkSync(bigPath);
+      }
+    });
+
+    test("should allow a large text file under the size cap", async () => {
+      const okPath = join(TEST_FIXTURES_DIR, "src/large_ok.txt");
+      fs.writeFileSync(okPath, Buffer.alloc(9 * 1024 * 1024).fill(65));
+      try {
+        const result = await readTool.call(
+          JSON.stringify({ path: okPath, limit: 1 }),
+          { cwd: TEST_FIXTURES_DIR }
+        );
+        expect(result).toContain("```");
+        expect(result).not.toContain("too large");
+      } finally {
+        fs.unlinkSync(okPath);
+      }
+    });
+
+    test("should reject binary files (NUL bytes within the first 8KB)", async () => {
+      const binPath = join(TEST_FIXTURES_DIR, "src/binary.dat");
+      fs.writeFileSync(binPath, Buffer.concat([
+        Buffer.from([0x50, 0x4b, 0x03, 0x04]), // "PK.."
+        Buffer.alloc(16).fill(0),
+        Buffer.from("tail"),
+      ]));
+      try {
+        const result = await readTool.call(
+          JSON.stringify({ path: binPath }),
+          { cwd: TEST_FIXTURES_DIR }
+        );
+        expect(result).toContain("appears to be a binary file");
+      } finally {
+        fs.unlinkSync(binPath);
+      }
+    });
+
+    test("should reject a symlink pointing outside the working directory", async () => {
+      fs.mkdirSync(OUTSIDE_DIR, { recursive: true });
+      const secretPath = join(OUTSIDE_DIR, "secret.txt");
+      fs.writeFileSync(secretPath, "top secret\n");
+      const linkPath = join(TEST_FIXTURES_DIR, "src/sneaky_link.txt");
+
+      let created = true;
+      try {
+        fs.symlinkSync(secretPath, linkPath);
+      } catch {
+        // Platforms that cannot create symlinks without elevation — skip.
+        created = false;
+      }
+      if (!created) {
+        fs.rmSync(OUTSIDE_DIR, { recursive: true, force: true });
+        return;
+      }
+
+      try {
+        const result = await readTool.call(
+          JSON.stringify({ path: linkPath }),
+          { cwd: TEST_FIXTURES_DIR }
+        );
+        expect(result).toContain("Permission error");
+        expect(result).not.toContain("top secret");
+      } finally {
+        fs.unlinkSync(linkPath);
+        fs.rmSync(OUTSIDE_DIR, { recursive: true, force: true });
+      }
     });
   });
 });

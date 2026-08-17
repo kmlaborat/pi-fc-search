@@ -24,3 +24,22 @@ export class LLMAPIError extends Error {
     this.name = "LLMAPIError";
   }
 }
+
+// (D-019, SPEC §18): fatal execution errors are thrown with typed classes
+// instead of being returned as "[ERROR] ..." strings with isError: false.
+// The extension maps them to tool results flagged isError: true so the host
+// agent can tell a failed search apart from a (possibly empty) answer.
+
+export class ConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConfigurationError";
+  }
+}
+
+export class TimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TimeoutError";
+  }
+}

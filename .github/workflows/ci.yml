@@ -100,25 +100,9 @@ jobs:
         shell: pwsh
         run: npm test
 
-      - name: Verify bundled ripgrep binary
-        shell: bash
-        run: |
-          # Verify @vscode/ripgrep provides rg binary
-          RG_PATH=$(node -e "const {rgPath} = require('@vscode/ripgrep'); console.log(rgPath)")
-          
-          if [[ -z "$RG_PATH" ]]; then
-            echo "ERROR: rgPath not provided by @vscode/ripgrep"
-            exit 1
-          fi
-          
-          echo "✓ Ripgrep binary found at: $RG_PATH"
-          
-          # Test that the binary is executable
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            $RG_PATH --version
-          else
-            "$RG_PATH" --version
-          fi
+      # (Review fix) The bundled ripgrep binary was verified twice — the
+      # "Verify architecture and ripgrep binary" step above already runs the
+      # binary and fails the build if it is missing or not executable.
 
       - name: Verify no Python dependency
         shell: bash

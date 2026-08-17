@@ -11,7 +11,7 @@ import { runFastContextAgent, RunFastContextAgentOptions } from "../src/fastcont
 import { loadEnvFile } from "../src/fastcontext-agent/env.js";
 import { loadFastContextConfig } from "../src/fastcontext-agent/config.js";
 import type { FastContextEnvConfig } from "../src/fastcontext-agent/config.js";
-import { CancelledError } from "../src/fastcontext-agent/errors.js";
+import { CancelledError, ConfigurationError, TimeoutError } from "../src/fastcontext-agent/errors.js";
 
 // Tool input schema (JSON Schema format - zero external dependencies)
 const SearchToolSchema = {
@@ -133,6 +133,23 @@ async function executeAgent(
   onTurn?: (n: number, maxTurns: number) => void
 ): Promise<string> {
   
+  // Fail fast with an actionable message when configuration is missing —
+  // BEFORE the timeout timer is scheduled so a config error does not leave a
+  // pending timer. Without this check, an empty base URL produces a cryptic
+  // fetch error after the agent has already burned turns on a dead endpoint.
+  // (D-019, SPEC §18) thrown as a typed error so the tool result is flagged
+  // isError: true instead of masquerading as a successful (error-text) answer.
+  if (!FC_CONFIG.baseUrl) {
+    throw new ConfigurationError(
+      "FASTCONTEXT_ENDPOINT is not configured. Set it in pi-fc-search/.env (see .env.example) or as a shell environment variable."
+    );
+  }
+  if (!FC_CONFIG.model) {
+    throw new ConfigurationError(
+      "FASTCONTEXT_MODEL is not configured. Set it in pi-fc-search/.env (see .env.example) or as a shell environment variable."
+    );
+  }
+
   // Create controller for timeout/cancellation coordination
   const controller = new AbortController();
   
@@ -143,27 +160,20 @@ async function executeAgent(
     controller.abort(new Error("timeout"));
   }, FC_CONFIG.timeoutSeconds * 1000);
   
-  // Link user cancellation signal to controller
+  // Link user cancellation signal to controller. The listener is removed on
+  // completion so repeated calls do not accumulate handlers on the caller's
+  // signal.
+  const onCallerAbort = () => controller.abort(new Error("cancelled"));
   if (signal) {
-    signal.addEventListener("abort", () => {
-      controller.abort(new Error("cancelled"));
-    });
+    signal.addEventListener("abort", onCallerAbort, { once: true });
   }
-  
-  // Cleanup on completion or abort
-  controller.signal.addEventListener("abort", () => {
-    clearTimeout(timeoutId);
-  });
 
-  // Fail fast with an actionable message when configuration is missing.
-  // Without this, an empty base URL produces a cryptic fetch error after
-  // the agent has already burned turns on a dead endpoint.
-  if (!FC_CONFIG.baseUrl) {
-    return "[ERROR] FASTCONTEXT_ENDPOINT is not configured. Set it in pi-fc-search/.env (see .env.example) or as a shell environment variable.";
-  }
-  if (!FC_CONFIG.model) {
-    return "[ERROR] FASTCONTEXT_MODEL is not configured. Set it in pi-fc-search/.env (see .env.example) or as a shell environment variable.";
-  }
+  // Cleanup on completion or abort
+  const onControllerAbort = () => {
+    clearTimeout(timeoutId);
+    if (signal) signal.removeEventListener("abort", onCallerAbort);
+  };
+  controller.signal.addEventListener("abort", onControllerAbort, { once: true });
 
   // Resolved from .env + process.env at module load (SPEC §15); fail-fast
   // checks above guarantee endpoint and model are set.
@@ -194,10 +204,13 @@ async function executeAgent(
 
     // Handle timeout (covers the fetch AbortError, the agent's per-turn
     // abort check, and any other error raised after the timer fired).
-    // (SPEC §19 v3) the message now reports the configured timeout instead
-    // of the historical hard-coded 120s.
+    // (SPEC §19 v3) the message reports the configured timeout instead of
+    // the historical hard-coded 120s. (D-019, SPEC §18): thrown as a typed
+    // error so the tool result is flagged isError: true.
     if (controller.signal.aborted && reasonMessage === "timeout") {
-      return `[ERROR] pi-fc-search execution timeout exceeded (${FC_CONFIG.timeoutSeconds} seconds).`;
+      throw new TimeoutError(
+        `pi-fc-search execution timeout exceeded (${FC_CONFIG.timeoutSeconds} seconds).`
+      );
     }
 
     // Handle user cancellation. (D-014, SPEC §18): typed CancelledError
@@ -211,8 +224,17 @@ async function executeAgent(
       throw new CancelledError();
     }
 
-    // Return raw error for agent to interpret
-    return `[ERROR] ${error instanceof Error ? error.message : "Unknown error occurred"}`;
+    // (D-019, SPEC §18) re-throw so the tool result is flagged isError: true
+    // instead of returning an "[ERROR] ..." string as a successful answer.
+    // The caller (execute) wraps the message.
+    throw error;
+  } finally {
+    // Release the timeout timer and all signal listeners on every path —
+    // previously the 120s (or configured) timer and the caller-signal
+    // listener stayed pending after a successful search.
+    clearTimeout(timeoutId);
+    if (signal) signal.removeEventListener("abort", onCallerAbort);
+    controller.signal.removeEventListener("abort", onControllerAbort);
   }
 }
 

@@ -200,6 +200,9 @@ For local installations (`./path/pi-fc-search`), this is typically the project r
 - Only built-in Node.js modules used (no external dependencies like `dotenv`)
 - Supports `KEY=VALUE` format with optional quotes (`"value"` or `'value'`)
 - Lines starting with `#` are treated as comments
+- **Only `FASTCONTEXT_*` keys are applied** (SPEC §18/D-018): any other key is
+  ignored with a warning, so a stray `PATH=...`-style line can never hijack the
+  host pi process
 - Failed file reads are silently ignored (does not break execution)
 
 ### Error Handling
@@ -209,11 +212,17 @@ The extension handles the following error cases:
 | Error Type | Description | Recovery |
 |------------|-------------|----------|
 | Missing Parameters | Invalid tool arguments | Provide valid description and prompt |
+| Missing Configuration | `FASTCONTEXT_ENDPOINT`/`FASTCONTEXT_MODEL` unset | Set them in `pi-fc-search/.env` (see `.env.example`) or as shell environment variables |
 | No Matching Code Found | Search returned no results | Refine search query |
 | LLM API Error | Upstream API failure | Check API configuration |
 | Ripgrep binary missing | Bundled binary unavailable | Ensure @vscode/ripgrep is installed |
 | Timeout | Operation exceeds `FASTCONTEXT_TIMEOUT_SECONDS` (default 120s) | Raise the timeout for slow/CPU models, simplify query, or retry |
 | User Cancellation | Tool call cancelled during execution | Retry if needed |
+
+Missing configuration, timeouts, and other fatal failures are returned as
+**flagged error results** (`isError: true`, SPEC §18/D-019), so the host agent
+can distinguish a failed search from a (possibly empty) answer. User
+cancellation is the only non-error non-answer.
 
 ### Troubleshooting: macOS Gatekeeper on the bundled `rg` binary
 
@@ -281,7 +290,7 @@ This extension complies with the following SPEC requirements:
 - **Cancellation**: Cooperative cancellation via AbortSignal (SPEC §4.10)
 - **Model-agnostic**: Designed for general small agentic models (SPEC §19)
 - **Tests**: Comprehensive test suite with vitest
-- **SPEC Version**: Compliant with docs/SPEC.md incl. §17 known issues, §18 documented deviations (D-001 to D-017, D-011 superseded by D-012), and §19 v3 general-model redesign (incl. C-7 description accuracy pass)
+- **SPEC Version**: Compliant with docs/SPEC.md incl. §17 known issues, §18 documented deviations (D-001 to D-020, D-011 superseded by D-012), and §19 v3 general-model redesign (incl. C-7 description accuracy pass)
 
 > **Verification**: Full test suite: `npm test` and `npm run typecheck`. The v3 redesign surfaces (prompt, descriptions, sampling/timeout configuration) are covered by `tests/integration/prompt.test.ts` and `tests/integration/config.test.ts`.
 

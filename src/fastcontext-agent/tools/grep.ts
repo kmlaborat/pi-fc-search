@@ -165,7 +165,10 @@ export class GrepTool implements Tool {
       // values >= 100: a model requesting 0 (most plausibly "no limit")
       // received 100 with no explanation. Naming the two valid options lets
       // the model self-correct in one turn. Validated before spawning rg.
-      if (rgArgs.headLimit !== undefined && rgArgs.headLimit <= 0) {
+      // (Review fix) non-integers (e.g. 1.5) were previously accepted and
+      // silently integer-coerced by Array.slice — the schema declares an
+      // integer, so reject them explicitly.
+      if (rgArgs.headLimit !== undefined && (!Number.isInteger(rgArgs.headLimit) || rgArgs.headLimit <= 0)) {
         return "Grep Tool: head_limit must be a positive integer. Omit head_limit for the default (100 lines), or use a value up to 2000.";
       }
 
@@ -178,8 +181,10 @@ export class GrepTool implements Tool {
         resolvedPath = dockerResolution.resolved;
         pathCorrection = dockerResolution.correction;
       } else {
-        // Fall back to standard resolution
-        resolvedPath = resolve(rgArgs.path!);
+        // Fall back to standard resolution.
+        // (Review fix) resolve against the tool's working directory, not the
+        // Node process cwd (same rationale as the Read tool).
+        resolvedPath = resolve(ctx.cwd, rgArgs.path!);
       }
 
       // Validate path containment (SPEC §12) - after correction

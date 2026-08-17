@@ -3,7 +3,8 @@
  * Ported from src/fastcontext/agent/context.py
  */
 
-import { writeFileSync, mkdirSync } from "fs";
+import { mkdirSync } from "fs";
+import { appendFile } from "fs/promises";
 import { dirname } from "path";
 import type { Message, NormalizedToolCall } from "./llm.js";
 
@@ -64,7 +65,10 @@ export class Context {
         return JSON.stringify(obj);
       });
 
-      writeFileSync(this.trajectoryFile, lines.join("\n") + "\n", { flag: "a" });
+      // (Review fix) async append instead of writeFileSync — the write is
+      // awaited, so ordering semantics are unchanged, but a slow disk no
+      // longer blocks the host (pi) event loop mid-search.
+      await appendFile(this.trajectoryFile, lines.join("\n") + "\n");
     } catch (error) {
       console.error(`[fastcontext] Failed to write trajectory: ${error}`);
     }

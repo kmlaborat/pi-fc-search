@@ -72,9 +72,11 @@ function createEnvLoader(): (envPath: string) => void {
         value = value.slice(1, -1);
       }
       
-      // Must mirror src/fastcontext-agent/env.ts semantics (D-012, SPEC §18):
-      // the .env file is the source of truth and overrides variables already
-      // present in the process environment.
+      // Must mirror src/fastcontext-agent/env.ts semantics (D-012 + D-018,
+      // SPEC §18): the .env file is the source of truth and overrides
+      // variables already present in the process environment, but ONLY for
+      // FASTCONTEXT_* keys (non-prefixed keys are ignored).
+      if (!key.startsWith("FASTCONTEXT_")) continue;
       process.env[key] = value;
     }
   };
@@ -119,25 +121,27 @@ describe(".env File Loading (SPEC §14)", () => {
   });
 
   test("should handle quoted values in .env file", () => {
-    // Create temp .env with quoted values
+    // Create temp .env with quoted values (D-018: FASTCONTEXT_* keys only)
     const tempEnv = path.join(TEST_DIR, "quoted.env");
-    fs.writeFileSync(tempEnv, `QUOTED_KEY="quoted_value"
-SINGLE_QUOTED_KEY='single_quoted_value'
+    fs.writeFileSync(tempEnv, `FASTCONTEXT_QUOTED="quoted_value"
+FASTCONTEXT_SINGLE_QUOTED='single_quoted_value'
 `, "utf-8");
     
     const loadEnv = createEnvLoader();
     loadEnv(tempEnv);
     
-    expect(process.env.QUOTED_KEY).toBe("quoted_value");
-    expect(process.env.SINGLE_QUOTED_KEY).toBe("single_quoted_value");
+    expect(process.env.FASTCONTEXT_QUOTED).toBe("quoted_value");
+    expect(process.env.FASTCONTEXT_SINGLE_QUOTED).toBe("single_quoted_value");
     
+    delete process.env.FASTCONTEXT_QUOTED;
+    delete process.env.FASTCONTEXT_SINGLE_QUOTED;
     fs.unlinkSync(tempEnv);
   });
 
   test("should skip comments and empty lines", () => {
     const tempEnv = path.join(TEST_DIR, "comments.env");
     fs.writeFileSync(tempEnv, `# This is a comment
-KEY=value
+FASTCONTEXT_COMMENT=value
 
 # Another comment
 `, "utf-8");
@@ -145,8 +149,26 @@ KEY=value
     const loadEnv = createEnvLoader();
     loadEnv(tempEnv);
     
-    expect(process.env.KEY).toBe("value");
+    expect(process.env.FASTCONTEXT_COMMENT).toBe("value");
     
+    delete process.env.FASTCONTEXT_COMMENT;
+    fs.unlinkSync(tempEnv);
+  });
+
+  test("should ignore non-FASTCONTEXT_* keys (D-018, SPEC §18)", () => {
+    const tempEnv = path.join(TEST_DIR, "prefix.env");
+    fs.writeFileSync(tempEnv, `PATH=/should/not/be/touched
+FASTCONTEXT_PREFIX_TEST=applied
+`, "utf-8");
+
+    const beforePath = process.env.PATH;
+    const loadEnv = createEnvLoader();
+    loadEnv(tempEnv);
+
+    expect(process.env.PATH).toBe(beforePath);
+    expect(process.env.FASTCONTEXT_PREFIX_TEST).toBe("applied");
+
+    delete process.env.FASTCONTEXT_PREFIX_TEST;
     fs.unlinkSync(tempEnv);
   });
 
