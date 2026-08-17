@@ -6,6 +6,7 @@
 import { randomUUID } from "crypto";
 import { loadEnvFile } from "./env.js";
 import { DEFAULT_TEMPERATURE } from "./config.js";
+import { CancelledError, LLMAPIError } from "./errors.js";
 
 // Load environment variables at module initialization (shared, idempotent loader)
 loadEnvFile();
@@ -89,12 +90,8 @@ interface ChatCompletionPayload {
   tools?: object[];
 }
 
-export class RequestyAPIError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "RequestyAPIError";
-  }
-}
+// (D-015, SPEC §18): API errors use LLMAPIError from ./errors.js (the v2
+// name `RequestyAPIError` was a porting leftover; messages are unchanged).
 
 export class LLMClient {
   model: string;
@@ -141,7 +138,7 @@ export class LLMClient {
     try {
       // Check for abort before fetch
       if (signal && signal.aborted) {
-        throw new Error("Operation was cancelled");
+        throw new CancelledError();
       }
 
       const response = await fetch(url, {
@@ -156,7 +153,7 @@ export class LLMClient {
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new RequestyAPIError(`LLM API call failed (${response.status}): ${errorText}`);
+        throw new LLMAPIError(`LLM API call failed (${response.status}): ${errorText}`);
       }
 
       const data = await response.json();
@@ -164,10 +161,11 @@ export class LLMClient {
       // Extract raw message and normalized tool calls separately
       return this.extractRawMessage(data);
     } catch (error) {
-      if (error instanceof RequestyAPIError) throw error;
+      if (error instanceof LLMAPIError) throw error;
+      if (error instanceof CancelledError) throw error;
       // Re-throw aborts (timeout / user cancellation) unwrapped so callers can
       // inspect the linked AbortSignal and map the failure correctly. Wrapping
-      // them in RequestyAPIError previously made timeouts surface as
+      // them in LLMAPIError previously made timeouts surface as
       // "LLM API call failed" and silently broke timeout/cancel handling.
       if (
         (error instanceof Error && error.name === "AbortError") ||
@@ -175,7 +173,7 @@ export class LLMClient {
       ) {
         throw error;
       }
-      throw new RequestyAPIError(`LLM API call failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+      throw new LLMAPIError(`LLM API call failed: ${error instanceof Error ? error.message : "Unknown error"}`);
     }
   }
 
@@ -188,7 +186,7 @@ export class LLMClient {
    */
   private extractRawMessage(responseData: any): { raw: any; normalizedToolCalls: NormalizedToolCall[] } {
     if (!responseData.choices || responseData.choices.length === 0) {
-      throw new RequestyAPIError("No choices returned from LLM API call.");
+      throw new LLMAPIError("No choices returned from LLM API call.");
     }
 
     const choice = responseData.choices[0];

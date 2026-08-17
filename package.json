@@ -1,6 +1,6 @@
 {
   "name": "pi-fc-search",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "type": "module",
   "description": "Pi extension package for fastcontext repository search",
   "main": "extensions/index.ts",
@@ -26,11 +26,8 @@
     ]
   },
   "devDependencies": {
-    "@types/chai": "^5.2.3",
     "@types/node": "^26.1.2",
     "@vitest/expect": "^4.1.10",
-    "chai": "^6.2.2",
-    "tsx": "^4.23.9",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   }

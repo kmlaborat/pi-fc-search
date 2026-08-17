@@ -106,7 +106,7 @@ export class GrepTool implements Tool {
       head_limit: {
         type: "number",
         minimum: 0,
-        description: 'Limit output to first N lines/entries, equivalent to "| head -N". Works across all output modes: content (limits output lines), files_with_matches (limits file paths), count (limits count entries). When unspecified, shows all results from ripgrep.'
+        description: 'Limit output to first N lines/entries, equivalent to "| head -N". Works across all output modes: content (limits output lines), files_with_matches (limits file paths), count (limits count entries). When unspecified, the first 100 lines are shown.'
       },
       multiline: {
         type: "boolean",
@@ -144,7 +144,10 @@ export class GrepTool implements Tool {
         outputMode: (parsed.output_mode as RipgrepArgs["outputMode"]) || "content",
         beforeContext: parsed["-B"],
         afterContext: parsed["-A"],
-        context: parsed["-C"] || 3,
+        // (D-013, SPEC §18): `||` coerced an explicit `-C: 0` (no context) to
+        // the default 3. `??` honors 0; the default applies only when the
+        // parameter is absent (undefined).
+        context: parsed["-C"] ?? 3,
         lineNumbers: parsed["-n"] ?? true,
         ignoreCase: parsed["-i"] || false,
         typeFilter: parsed.type,

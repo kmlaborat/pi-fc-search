@@ -109,6 +109,35 @@ describe("GrepTool - Extended Tests", () => {
       expect(result).toContain("hello");
     });
 
+    test("should honor explicit -C: 0 (no context lines, D-013 SPEC §18)", async () => {
+      // A fixture where the match has adjacent lines: with the v2 `|| 3` bug an
+      // explicit -C: 0 silently gained 3 context lines; `?? 3` must not.
+      const zeroCtx = await grepTool.call(
+        JSON.stringify({
+          pattern: "hello",
+          path: join(TEST_FIXTURES_DIR, "output_test.ts"),
+          output_mode: "content",
+          "-C": 0
+        }),
+        { cwd: TEST_FIXTURES_DIR }
+      );
+      const defaultCtx = await grepTool.call(
+        JSON.stringify({
+          pattern: "hello",
+          path: join(TEST_FIXTURES_DIR, "output_test.ts"),
+          output_mode: "content"
+        }),
+        { cwd: TEST_FIXTURES_DIR }
+      );
+
+      expect(zeroCtx).toContain("hello");
+      // The default-context run must be strictly larger (context lines added),
+      // proving that -C: 0 suppressed context rather than falling back to 3.
+      expect(defaultCtx.length).toBeGreaterThan(zeroCtx.length);
+      // No context separator lines from rg in the zero-context output.
+      expect(zeroCtx).not.toMatch(/^ *- *$/m);
+    });
+
     test("should handle 'files_with_matches' output mode", async () => {
       const result = await grepTool.call(
         JSON.stringify({

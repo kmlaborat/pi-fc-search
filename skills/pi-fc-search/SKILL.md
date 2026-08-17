@@ -1,13 +1,13 @@
 ---
 name: pi-fc-search
-description: Repository search tool using Microsoft's fastcontext. Use when you need to find code patterns, understand architecture, or locate specific functionality in large codebases. This tool is more efficient than scanning entire files or using basic grep, especially for cold-start situations where you don't know what exists in the codebase.
+description: Repository search tool using a fastcontext-style read-only sub-agent. Use when you need to find code patterns, understand architecture, or locate specific functionality in large codebases. This tool is more efficient than scanning entire files or using basic grep, especially for cold-start situations where you don't know what exists in the codebase.
 ---
 
 # pi-fc-search Skill
 
 ## Overview
 
-This skill provides repository search capabilities through Microsoft's fastcontext tool. It allows efficient codebase exploration without consuming excessive context tokens.
+This skill provides repository search capabilities through a fastcontext-style sub-agent (inspired by Microsoft's fastcontext, designed for general small agentic models — see README §Model Selection). It allows efficient codebase exploration without consuming excessive context tokens.
 
 ## When to Use
 
@@ -83,7 +83,7 @@ Call the `fc_search` tool with the following parameters:
 
 ### Response Format
 
-The tool returns the **raw output from fastcontext CLI without any processing or truncation**. The format depends on the `use_citation` parameter:
+The tool returns the **raw output from the in-process fastcontext agent without any processing or truncation**. The format depends on the `use_citation` parameter:
 
 **Default mode (`use_citation: false`):**
 Returns full natural language response with summaries, reasoning, and file contexts:
@@ -125,6 +125,6 @@ Use citation mode when you need compact, parseable output for programmatic proce
 - Requires @vscode/ripgrep package (bundled with pi-fc-search)
 - Maximum prompt length: 2000 characters
 - Maximum description length: 100 characters
-- Execution timeout: 120 seconds
+- Execution timeout: 120 seconds by default, configurable via `FASTCONTEXT_TIMEOUT_SECONDS` (raise it for CPU-served local models)
 - No output truncation - large responses are returned completely
 - No external dependencies beyond @vscode/ripgrep (uses only Node.js built-in modules)

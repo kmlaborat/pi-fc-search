@@ -39,7 +39,7 @@ export class ReadTool implements Tool {
       },
       offset: {
         type: "integer",
-        description: "The line number to start reading from. Positive values are 1-indexed from the start of the file. Negative values count backwards from the end (e.g. -1 is the last line). Only provide if the file is too large to read at once."
+        description: "The line number to start reading from, 1-indexed from the start of the file. Values below 1 read from the first line. Only provide if the file is too large to read at once."
       },
       limit: {
         type: "integer",

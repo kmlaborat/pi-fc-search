@@ -5,7 +5,8 @@
 
 import { randomUUID } from "crypto";
 import type { LLMClient, NormalizedToolCall } from "./llm.js";
-import { RequestyAPIError, normalizeToolCalls } from "./llm.js";
+import { normalizeToolCalls } from "./llm.js";
+import { CancelledError, LLMAPIError } from "./errors.js";
 import type { ToolSet, FunctionCall } from "./tools/types.js";
 import { Context } from "./context.js";
 import { loadSystemPrompt } from "./prompt.js";
@@ -49,7 +50,7 @@ export class Agent {
     const maxTurns = options.maxTurns ?? 15;
     const citation = options.citation ?? false;
     const signal = options.signal;
-    return await this._agentLoop(options.prompt as string, maxTurns, citation, signal);
+    return await this._agentLoop(options.prompt, maxTurns, citation, signal);
   }
 
   private async _agentLoop(prompt: string, maxTurns: number, citation: boolean, signal?: AbortSignal): Promise<string> {
@@ -64,7 +65,7 @@ export class Agent {
     while (true) {
       // Check for cancellation at start of each turn
       if (signal && signal.aborted) {
-        throw new Error("Operation was cancelled");
+        throw new CancelledError();
       }
 
       nTurn++;
@@ -106,7 +107,7 @@ export class Agent {
         const toolCalls = stepResult.normalizedToolCalls;
         
         if (toolCalls && toolCalls.length > 0) {
-          const toolResults = await this.toolset.callNormalized(toolCalls as any);
+          const toolResults = await this.toolset.callNormalized(toolCalls);
 
           // Create messages for each tool result
           const toolMessages: any[] = toolResults.map(result => ({
@@ -129,7 +130,12 @@ export class Agent {
           return citation ? getFinalAnswer(content) : content;
         }
       } catch (error) {
-        if (error instanceof RequestyAPIError) {
+        // Cancellation must propagate untouched so the caller can report it
+        // as a cancel (not an API failure). (D-014, SPEC §18)
+        if (error instanceof CancelledError) {
+          throw error;
+        }
+        if (error instanceof LLMAPIError) {
           const errorMessage = `LLM API call failed. So stopping the agent.\nError details:\n${error.message}`;
           await this.context.add({ role: "assistant", content: errorMessage });
           return errorMessage;

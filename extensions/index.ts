@@ -11,6 +11,7 @@ import { runFastContextAgent, RunFastContextAgentOptions } from "../src/fastcont
 import { loadEnvFile } from "../src/fastcontext-agent/env.js";
 import { loadFastContextConfig } from "../src/fastcontext-agent/config.js";
 import type { FastContextEnvConfig } from "../src/fastcontext-agent/config.js";
+import { CancelledError } from "../src/fastcontext-agent/errors.js";
 
 // Tool input schema (JSON Schema format - zero external dependencies)
 const SearchToolSchema = {
@@ -197,14 +198,15 @@ async function executeAgent(
       return `[ERROR] pi-fc-search execution timeout exceeded (${FC_CONFIG.timeoutSeconds} seconds).`;
     }
 
-    // Handle user cancellation
+    // Handle user cancellation. (D-014, SPEC §18): typed CancelledError
+    // instead of a plain Error whose message the caller matched as a string.
     if (controller.signal.aborted) {
-      throw new Error("Operation was cancelled");
+      throw new CancelledError();
     }
 
     // Handle AbortError from fetch (defensive: no linked controller abort)
     if (error instanceof Error && error.name === "AbortError") {
-      throw new Error("Operation was cancelled");
+      throw new CancelledError();
     }
 
     // Return raw error for agent to interpret
@@ -269,7 +271,12 @@ export default function (pi: ExtensionAPI) {
           details: { description, promptLength: prompt.length, max_turns, use_citation }
         };
       } catch (error) {
-        if (error instanceof Error && error.message?.includes("cancelled")) {
+        // (D-014, SPEC §18): cancellation is identified by type, not by
+        // matching the error message string.
+        if (
+          error instanceof CancelledError ||
+          (error instanceof Error && error.name === "AbortError")
+        ) {
           // Return non-error response for user cancellation (SPEC §6)
           return {
             content: [{ type: "text", text: "Search was cancelled" }],

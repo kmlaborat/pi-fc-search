@@ -4,6 +4,7 @@
  */
 
 import { spawn, spawnSync } from "child_process";
+import { existsSync } from "fs";
 
 const _cachedRgPath: { value?: string; error?: Error; resolved: boolean } = {
   value: undefined,
@@ -26,9 +27,22 @@ export async function getRgPath(): Promise<string> {
   }
 
   try {
-    // 1. Environment variable (highest priority)
-    if (process.env.RIPGREP_PATH) {
-      return process.env.RIPGREP_PATH;
+    // 1. Environment variable (highest priority, SPEC §10.1).
+    // (D-015, SPEC §18): validate existence and cache the outcome like the
+    // other strategies — a stale value must fail fast with an actionable
+    // message instead of surfacing later as an opaque spawn error, and the
+    // resolution must not be re-run on every tool call.
+    const envRg = process.env.RIPGREP_PATH;
+    if (envRg) {
+      if (!existsSync(envRg)) {
+        const error = new Error(`RIPGREP_PATH is set to \`${envRg}\`, which does not exist.`);
+        _cachedRgPath.error = error;
+        _cachedRgPath.resolved = true;
+        throw error;
+      }
+      _cachedRgPath.value = envRg;
+      _cachedRgPath.resolved = true;
+      return envRg;
     }
 
     // 2. Bundled from @vscode/ripgrep (recommended)

@@ -7,18 +7,14 @@ import { writeFileSync, mkdirSync } from "fs";
 import { dirname } from "path";
 import type { Message, NormalizedToolCall } from "./llm.js";
 
-/**
- * Internal storage format that preserves the raw API message object.
- * Tool call normalization is exported separately for execution; it never
- * flows back into this history array — breaking the round-trip transformation chain.
- */
-interface HistoryEntry {
-  /** The raw message object as returned by the LLM server (unmodified) */
-  raw: any;
-}
-
 export class Context {
-  private history: HistoryEntry[];
+  /**
+   * Raw message objects as returned by the LLM server (unmodified except for
+   * the metadata stripping in add()). Tool call normalization is exported
+   * separately for execution; it never flows back into this history array —
+   * breaking the round-trip transformation chain.
+   */
+  private history: Record<string, unknown>[];
   trajectoryFile: string;
 
   constructor(trajectoryFile: string) {
@@ -49,7 +45,7 @@ export class Context {
       reasoning_content: undefined,
     }));
 
-    this.history.push(...(cleanMessages as HistoryEntry[]));
+    this.history.push(...(cleanMessages as unknown as Record<string, unknown>[]));
 
     // Write to trajectory file (JSONL format)
     try {
