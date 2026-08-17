@@ -172,7 +172,10 @@ export class ReadTool implements Tool {
         return "File is empty.";
       }
       
-      const lines = content.split("\n");
+      // Normalize CRLF so Windows line endings do not leave a stray \r at the
+      // end of every numbered line (matches the LF normalization applied to
+      // the system prompt template in prompt.ts).
+      const lines = content.replace(/\r\n/g, "\n").split("\n");
 
       // (Review fix) Validate the paging parameters before computing the
       // range — previously an offset beyond EOF produced a header with zero

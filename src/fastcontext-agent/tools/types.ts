@@ -3,7 +3,11 @@
  * Ported from src/fastcontext/agent/tool/tool.py
  */
 
-import type { Message } from "../llm.js";
+// (Review fix) FunctionCall is defined once in ../llm.js and re-exported
+// here — the duplicate local definition drifted as a second source of
+// truth for the OpenAI tool-call wire format.
+import type { Message, FunctionCall } from "../llm.js";
+export type { FunctionCall } from "../llm.js";
 
 export const MAX_TOOLRUN_TIMEOUT = 10; // seconds per tool call timeout
 
@@ -42,18 +46,6 @@ export interface MessageWithToolCalls {
   role: string;
   content?: string;
   tool_calls?: FunctionCall[];
-}
-
-/**
- * Function call definition
- */
-export interface FunctionCall {
-  id: string;
-  type: "function";
-  function: {
-    name: string;
-    arguments: string; // JSON string
-  };
 }
 
 /**

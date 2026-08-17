@@ -4,6 +4,7 @@
  */
 
 import { existsSync, statSync } from "fs";
+import { realpath } from "fs/promises";
 import { resolve } from "path";
 import { isWithinCwd, resolveDockerMountPath } from "../utils.js";
 import type { Tool, CallContext, ToolResult } from "./types.js";
@@ -90,6 +91,22 @@ export class GlobTool implements Tool {
       // the Read and Grep tools.
       if (!isWithinCwd(resolvedDirectory, ctx.cwd)) {
         return `Permission error: \`${resolvedDirectory}\` is not within the working directory \`${ctx.cwd}\`.`;
+      }
+
+      // (D-022, SPEC §18) Realpath containment: the lexical isWithinCwd check
+      // does not see through symlinks; re-check the resolved target so a
+      // symlinked directory inside the working directory cannot list files
+      // outside it (same defense as the Read tool, D-020). On realpath failure
+      // (path does not exist yet) the passed lexical check governs — the
+      // existence validation below still applies.
+      try {
+        const realDir = await realpath(resolvedDirectory);
+        const realCwd = await realpath(ctx.cwd);
+        if (!isWithinCwd(realDir, realCwd)) {
+          return `Permission error: \`${resolvedDirectory}\` (resolves to \`${realDir}\`) is not within the working directory \`${ctx.cwd}\`.`;
+        }
+      } catch {
+        // See note above.
       }
 
       // Validate directory

@@ -102,55 +102,50 @@ export class Agent {
         });
       }
 
-      // Call LLM to get next action
-      try {
-        const stepResult = await this.llm.acall(
-          this.context.getMessages(),
-          isFinalTurn ? undefined : this.toolset.schemaList(),
-          signal // Pass abort signal to LLM client for cancellation
-        );
+      // Call LLM to get next action. No surrounding try/catch: CancelledError
+      // (D-014, SPEC §18) and LLMAPIError (D-021, SPEC §18) must propagate
+      // untouched to the extension, which maps them to a cancel result / an
+      // isError: true tool result respectively. Returning error text as a
+      // "successful" answer (upstream parity) let the host agent reason over
+      // it as search output.
+      const stepResult = await this.llm.acall(
+        this.context.getMessages(),
+        isFinalTurn ? undefined : this.toolset.schemaList(),
+        signal // Pass abort signal to LLM client for cancellation
+      );
 
-        // Add raw message object directly to history (preserves server structure)
-        await this.context.add(stepResult.raw);
+      // Add raw message object directly to history (preserves server structure)
+      await this.context.add(stepResult.raw);
 
-        // If LLM requested tool calls, execute them using normalized struct
-        const toolCalls = stepResult.normalizedToolCalls;
-        
-        if (toolCalls && toolCalls.length > 0) {
-          const toolResults = await this.toolset.callNormalized(toolCalls);
+      // If LLM requested tool calls, execute them using normalized struct
+      const toolCalls = stepResult.normalizedToolCalls;
 
-          // Create messages for each tool result
-          const toolMessages: any[] = toolResults.map(result => ({
-            role: "tool",
-            content: result.failed ? `[ERROR] ${result.output}` : result.output,
-            tool_call_id: result.toolCallId
-          }));
+      if (toolCalls && toolCalls.length > 0) {
+        const toolResults = await this.toolset.callNormalized(toolCalls);
 
-          await this.context.add(toolMessages);
-        } else {
-          // LLM provided final answer — extract from raw object's content field
-          const content =
-            typeof stepResult.raw.content === "string" ? stepResult.raw.content : "";
-          if (!content.trim()) {
-            // Guard against servers returning empty/null content (e.g. output
-            // truncated by the max token limit). Returning an empty string
-            // surfaces to the caller as a mysterious "no response".
-            return "[ERROR] The LLM returned an empty response (output may have been truncated). Please retry the search.";
-          }
-          return citation ? getFinalAnswer(content) : content;
+        // Create messages for each tool result
+        const toolMessages: any[] = toolResults.map(result => ({
+          role: "tool",
+          content: result.failed ? `[ERROR] ${result.output}` : result.output,
+          tool_call_id: result.toolCallId
+        }));
+
+        await this.context.add(toolMessages);
+      } else {
+        // LLM provided final answer — extract from raw object's content field
+        const content =
+          typeof stepResult.raw.content === "string" ? stepResult.raw.content : "";
+        if (!content.trim()) {
+          // Guard against servers returning empty/null content (e.g. output
+          // truncated by the max token limit). (D-021, SPEC §18) thrown as a
+          // typed error (not returned as "[ERROR] ..." text) so the extension
+          // flags the tool result isError: true — an empty final answer is a
+          // failed search, not an answer.
+          throw new LLMAPIError(
+            "The LLM returned an empty response (output may have been truncated). Please retry the search."
+          );
         }
-      } catch (error) {
-        // Cancellation must propagate untouched so the caller can report it
-        // as a cancel (not an API failure). (D-014, SPEC §18)
-        if (error instanceof CancelledError) {
-          throw error;
-        }
-        if (error instanceof LLMAPIError) {
-          const errorMessage = `LLM API call failed. So stopping the agent.\nError details:\n${error.message}`;
-          await this.context.add({ role: "assistant", content: errorMessage });
-          return errorMessage;
-        }
-        throw error;
+        return citation ? getFinalAnswer(content) : content;
       }
     }
   }

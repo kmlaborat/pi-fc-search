@@ -3,6 +3,7 @@
  * Ported from src/fastcontext/agent/tool/grep.py
  */
 
+import { realpath } from "fs/promises";
 import { resolve } from "path";
 import { isWithinCwd, resolveDockerMountPath } from "../utils.js";
 import { MAX_TOOLRUN_TIMEOUT, type Tool, type CallContext, type ToolResult } from "./types.js";
@@ -190,6 +191,22 @@ export class GrepTool implements Tool {
       // Validate path containment (SPEC §12) - after correction
       if (!isWithinCwd(resolvedPath, ctx.cwd)) {
         return `Permission error: \`${resolvedPath}\` is not within the working directory \`${ctx.cwd}\`.`;
+      }
+
+      // (D-022, SPEC §18) Realpath containment: the lexical isWithinCwd check
+      // does not see through symlinks; re-check the resolved target so a
+      // symlink inside the working directory cannot search files outside it
+      // (same defense as the Read tool, D-020). On realpath failure (path does
+      // not exist) the passed lexical check governs — rg reports the missing
+      // path as it always did.
+      try {
+        const realPath = await realpath(resolvedPath);
+        const realCwd = await realpath(ctx.cwd);
+        if (!isWithinCwd(realPath, realCwd)) {
+          return `Permission error: \`${resolvedPath}\` (resolves to \`${realPath}\`) is not within the working directory \`${ctx.cwd}\`.`;
+        }
+      } catch {
+        // See note above.
       }
 
       const correctionNote = pathCorrection ? `[${pathCorrection}]\n` : "";

@@ -200,3 +200,94 @@ describe("FunctionCall structure validation", () => {
     expect(functionCall.function.arguments).toContain("test");
   });
 });
+
+describe("LLMClient - transient failure retry (D-023, SPEC §18)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const okResponse = () =>
+    createMockResponse({ choices: [{ message: { role: "assistant", content: "ok" } }] });
+  const httpError = (status: number) =>
+    ({ ok: false, status, text: () => Promise.resolve("server said no") }) as any;
+
+  test("retries HTTP 500 and then succeeds", async () => {
+    mockFetch
+      .mockResolvedValueOnce(httpError(500))
+      .mockResolvedValueOnce(okResponse());
+    const c = new LLMClient("m", "k", "http://x/v1", { retry_delay_ms: 1 });
+
+    const result = await c.acall([{ role: "user", content: "hi" }]);
+
+    expect(result.raw.content).toBe("ok");
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  test("retries HTTP 429", async () => {
+    mockFetch
+      .mockResolvedValueOnce(httpError(429))
+      .mockResolvedValueOnce(okResponse());
+    const c = new LLMClient("m", "k", "http://x/v1", { retry_delay_ms: 1 });
+
+    await c.acall([{ role: "user", content: "hi" }]);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  test("retries network-level fetch errors (e.g. ECONNREFUSED)", async () => {
+    mockFetch
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce(okResponse());
+    const c = new LLMClient("m", "k", "http://x/v1", { retry_delay_ms: 1 });
+
+    const result = await c.acall([{ role: "user", content: "hi" }]);
+    expect(result.raw.content).toBe("ok");
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  test("does not retry non-retryable HTTP 400", async () => {
+    mockFetch.mockResolvedValue(httpError(400));
+    const c = new LLMClient("m", "k", "http://x/v1", { retry_delay_ms: 1 });
+
+    await expect(c.acall([{ role: "user", content: "hi" }])).rejects.toThrow(/400/);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  test("gives up after 3 attempts on persistent 500", async () => {
+    mockFetch.mockResolvedValue(httpError(500));
+    const c = new LLMClient("m", "k", "http://x/v1", { retry_delay_ms: 1 });
+
+    await expect(c.acall([{ role: "user", content: "hi" }])).rejects.toThrow(
+      /LLM API call failed \(500\)/
+    );
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+  });
+
+  test("does not retry an already-aborted signal", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const c = new LLMClient("m", "k", "http://x/v1", { retry_delay_ms: 1 });
+
+    await expect(
+      c.acall([{ role: "user", content: "hi" }], undefined, controller.signal)
+    ).rejects.toThrow();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  test("omits the Authorization header when the API key is empty", async () => {
+    mockFetch.mockResolvedValue(okResponse());
+    const c = new LLMClient("m", "", "http://x/v1", { retry_delay_ms: 1 });
+
+    await c.acall([{ role: "user", content: "hi" }]);
+    const init = mockFetch.mock.calls[0][1] as RequestInit;
+    expect((init.headers as Record<string, string>)["Authorization"]).toBeUndefined();
+  });
+
+  test("sends the Authorization header when the API key is set", async () => {
+    mockFetch.mockResolvedValue(okResponse());
+    const c = new LLMClient("m", "secret", "http://x/v1", { retry_delay_ms: 1 });
+
+    await c.acall([{ role: "user", content: "hi" }]);
+    const init = mockFetch.mock.calls[0][1] as RequestInit;
+    expect((init.headers as Record<string, string>)["Authorization"]).toBe("Bearer secret");
+  });
+});

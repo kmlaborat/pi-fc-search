@@ -57,15 +57,18 @@ jobs:
           echo "Node version: $(node -v)"
           echo "==============================="
 
+      - name: Install dependencies
+        run: npm ci
+
+      # (Review fix) the bundled ripgrep binary is verified exactly once —
+      # dependencies are installed above, so no second `npm ci` here.
+
       - name: Verify architecture and ripgrep binary
         shell: bash
         run: |
           echo "=== Architecture Verification ==="
           echo "Node.js Architecture: $(node -e 'console.log(process.arch)')"
           echo "Platform: $(node -e 'console.log(process.platform)')"
-          
-          # Install dependencies to get ripgrep
-          npm ci --silent
           
           # Get ripgrep path
           RG_PATH=$(node -e "const {rgPath} = require('@vscode/ripgrep'); console.log(rgPath)")
@@ -84,9 +87,6 @@ jobs:
           fi
           
           echo "=== Verification Complete ==="
-
-      - name: Install dependencies
-        run: npm ci
 
       - name: Type check
         run: npm run typecheck

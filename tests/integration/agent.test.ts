@@ -11,6 +11,7 @@ import { isWithinCwd } from '../../src/fastcontext-agent/utils.js';
 import { Agent } from '../../src/fastcontext-agent/agent.js';
 import { ToolSet } from '../../src/fastcontext-agent/tools/types.js';
 import { ReadTool } from '../../src/fastcontext-agent/tools/read.js';
+import { LLMAPIError } from '../../src/fastcontext-agent/errors.js';
 
 // Mock child_process.spawn
 const mockSpawn = vi.fn();
@@ -125,6 +126,48 @@ describe("Agent loop - forced final turn (D-007, SPEC §18)", () => {
     expect(acall).toHaveBeenCalledTimes(2);
     expect(acall.mock.calls[0][1]).toBeDefined();   // turn 1: tools offered
     expect(acall.mock.calls[1][1]).toBeUndefined(); // final turn: tools omitted
+    expect(result).toContain("<final_answer>");
+  });
+});
+
+describe("Agent loop - LLM API failure propagation (D-021, SPEC §18)", () => {
+  const trajectoryFile = join(tmpdir(), "pi-fc-search", "trajectory_test_d7_021.jsonl");
+
+  test("should re-throw LLMAPIError instead of returning it as a successful answer", async () => {
+    const toolset = new ToolSet([new ReadTool()], process.cwd());
+    const acall = vi.fn().mockRejectedValue(
+      new LLMAPIError("LLM API call failed (500): boom")
+    );
+    const agent = new Agent("test", { acall } as any, toolset, trajectoryFile, process.cwd());
+
+    // Pre-D-021 this resolved with the error text as a "final answer";
+    // now it must reject so the extension flags the tool result isError: true.
+    await expect(agent.run({ prompt: "find x", maxTurns: 3 })).rejects.toThrow(LLMAPIError);
+    await expect(agent.run({ prompt: "find x", maxTurns: 3 })).rejects.toThrow("boom");
+  });
+
+  test("should throw LLMAPIError (not return '[ERROR] ...' text) on an empty final response (D-004/D-021)", async () => {
+    const toolset = new ToolSet([new ReadTool()], process.cwd());
+    const acall = vi.fn().mockResolvedValueOnce({
+      raw: { role: "assistant", content: "" },
+      normalizedToolCalls: [],
+    });
+    const agent = new Agent("test", { acall } as any, toolset, trajectoryFile, process.cwd());
+
+    await expect(agent.run({ prompt: "find x", maxTurns: 3 })).rejects.toThrow(
+      /empty response/
+    );
+  });
+
+  test("should still resolve normally for a non-empty final answer", async () => {
+    const toolset = new ToolSet([new ReadTool()], process.cwd());
+    const acall = vi.fn().mockResolvedValueOnce({
+      raw: { role: "assistant", content: "Answer.\n<final_answer>a.ts:1-2</final_answer>" },
+      normalizedToolCalls: [],
+    });
+    const agent = new Agent("test", { acall } as any, toolset, trajectoryFile, process.cwd());
+
+    const result = await agent.run({ prompt: "find x", maxTurns: 3 });
     expect(result).toContain("<final_answer>");
   });
 });

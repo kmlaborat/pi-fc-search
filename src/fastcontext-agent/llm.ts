@@ -93,6 +93,38 @@ interface ChatCompletionPayload {
 // (D-015, SPEC §18): API errors use LLMAPIError from ./errors.js (the v2
 // name `RequestyAPIError` was a porting leftover; messages are unchanged).
 
+// (D-023, SPEC §18) Transient-failure retry policy. A single 5xx/429 or a
+// dropped connection previously ended the whole search (and, pre-D-021,
+// surfaced as a "successful" error-text answer). Chat completions are
+// idempotent for our purposes (no server-side side effects), so bounded
+// retries are safe.
+const MAX_ATTEMPTS = 3; // initial call + 2 retries
+const DEFAULT_RETRY_DELAY_MS = 500;
+const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+
+/** Sleep `ms`, resolving early if the signal aborts (no listener leaks). */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (!signal) {
+      setTimeout(resolve, ms);
+      return;
+    }
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 export class LLMClient {
   model: string;
   apiKey: string;
@@ -100,6 +132,8 @@ export class LLMClient {
   maxTokens: number;
   temperature: number;
   topP: number;
+  /** Base delay between retry attempts (attempt n waits base * 2^(n-1)). */
+  retryDelayMs: number;
 
   constructor(
     model: string,
@@ -109,6 +143,7 @@ export class LLMClient {
       max_tokens?: number;
       temperature?: number;
       top_p?: number;
+      retry_delay_ms?: number;
     }
   ) {
     this.model = model;
@@ -117,6 +152,7 @@ export class LLMClient {
     this.maxTokens = options?.max_tokens ?? 32000;
     this.temperature = options?.temperature ?? DEFAULT_TEMPERATURE;
     this.topP = options?.top_p ?? 0.95;
+    this.retryDelayMs = options?.retry_delay_ms ?? DEFAULT_RETRY_DELAY_MS;
   }
 
   async acall(messages: Message[], tools?: object[], signal?: AbortSignal): Promise<{raw: any; normalizedToolCalls: NormalizedToolCall[]}> {
@@ -135,46 +171,79 @@ export class LLMClient {
     const baseUrl = this.baseUrl.endsWith("/") ? this.baseUrl.slice(0, -1) : this.baseUrl;
     const url = `${baseUrl}/chat/completions`;
 
-    try {
+    // An empty API key (local servers that ignore auth) must not send an
+    // empty `Authorization: Bearer ` header — some servers reject it.
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (this.apiKey) {
+      headers["Authorization"] = `Bearer ${this.apiKey}`;
+    }
+
+    // (D-023, SPEC §18) Bounded retry on transient failures: HTTP 408/429/5xx
+    // and network-level fetch errors. Semantic errors (other 4xx, malformed
+    // responses) and aborts are never retried. Backoff: retryDelayMs * 2^n.
+    let lastError: Error | undefined;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      if (attempt > 1) {
+        await sleep(this.retryDelayMs * 2 ** (attempt - 2), signal);
+      }
+
       // Check for abort before fetch
       if (signal && signal.aborted) {
         throw new CancelledError();
       }
 
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${this.apiKey}`,
-        },
-        body: JSON.stringify(payload),
-        signal, // Pass abort signal to fetch for cancellation
-      });
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(payload),
+          signal, // Pass abort signal to fetch for cancellation
+        });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new LLMAPIError(`LLM API call failed (${response.status}): ${errorText}`);
-      }
+        if (!response.ok) {
+          const errorText = await response.text();
+          const error = new LLMAPIError(`LLM API call failed (${response.status}): ${errorText}`);
+          if (RETRYABLE_STATUSES.has(response.status) && attempt < MAX_ATTEMPTS) {
+            lastError = error;
+            continue;
+          }
+          throw error;
+        }
 
-      const data = await response.json();
-      
-      // Extract raw message and normalized tool calls separately
-      return this.extractRawMessage(data);
-    } catch (error) {
-      if (error instanceof LLMAPIError) throw error;
-      if (error instanceof CancelledError) throw error;
-      // Re-throw aborts (timeout / user cancellation) unwrapped so callers can
-      // inspect the linked AbortSignal and map the failure correctly. Wrapping
-      // them in LLMAPIError previously made timeouts surface as
-      // "LLM API call failed" and silently broke timeout/cancel handling.
-      if (
-        (error instanceof Error && error.name === "AbortError") ||
-        (signal !== undefined && signal.aborted)
-      ) {
-        throw error;
+        const data = await response.json();
+
+        // Extract raw message and normalized tool calls separately
+        return this.extractRawMessage(data);
+      } catch (error) {
+        if (error instanceof LLMAPIError) throw error; // non-retryable (or exhausted)
+        if (error instanceof CancelledError) throw error;
+        // Re-throw aborts (timeout / user cancellation) unwrapped so callers can
+        // inspect the linked AbortSignal and map the failure correctly. Wrapping
+        // them in LLMAPIError previously made timeouts surface as
+        // "LLM API call failed" and silently broke timeout/cancel handling.
+        if (
+          (error instanceof Error && error.name === "AbortError") ||
+          (signal !== undefined && signal.aborted)
+        ) {
+          throw error;
+        }
+        // Network-level failure (ECONNREFUSED, DNS, TLS, ...) — retryable.
+        const wrapped = new LLMAPIError(
+          `LLM API call failed: ${error instanceof Error ? error.message : "Unknown error"}`
+        );
+        if (attempt < MAX_ATTEMPTS) {
+          lastError = wrapped;
+          continue;
+        }
+        throw wrapped;
       }
-      throw new LLMAPIError(`LLM API call failed: ${error instanceof Error ? error.message : "Unknown error"}`);
     }
+
+    // Unreachable in practice (the loop returns or throws); keep the type
+    // narrow for the exhaustiveness of the retry path.
+    throw lastError ?? new LLMAPIError("LLM API call failed.");
   }
 
   /**
