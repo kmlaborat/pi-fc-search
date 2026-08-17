@@ -129,7 +129,8 @@ async function executeAgent(
   cwd: string,
   signal?: AbortSignal,
   maxTurns: number = 15,
-  useCitation: boolean = false
+  useCitation: boolean = false,
+  onTurn?: (n: number, maxTurns: number) => void
 ): Promise<string> {
   
   // Create controller for timeout/cancellation coordination
@@ -172,6 +173,7 @@ async function executeAgent(
     maxTurns,
     citation: useCitation,
     signal: controller.signal,
+    onTurn,
     llm: {
       model: FC_CONFIG.model,
       apiKey: FC_CONFIG.apiKey,
@@ -245,14 +247,28 @@ export default function (pi: ExtensionAPI) {
       onUpdate,
       ctx
     ) {
+      // AgentToolResult (and the onUpdate partial-result type) require the
+      // `details` field on every return path — provide it uniformly.
+      const details = (
+        d?: string,
+        promptLength?: number,
+        maxTurns?: number,
+        useCitation?: boolean
+      ) => ({ description: d, promptLength, max_turns: maxTurns, use_citation: useCitation });
+
       try {
         const validated = validateInput(params);
         const { description, prompt, max_turns, use_citation } = validated;
 
-        // Update progress
-        onUpdate?.({
-          content: [{ type: "text", text: `Searching: ${description}...` }]
-        });
+        const report = (text: string) => {
+          onUpdate?.({
+            content: [{ type: "text", text }],
+            details: details(description, prompt.length, max_turns, use_citation),
+          });
+        };
+
+        // Update progress (initial, then per agent turn)
+        report(`Searching: ${description}...`);
 
         // Convert cwd to absolute path
         const absoluteCwd = path.resolve(ctx.cwd);
@@ -263,12 +279,13 @@ export default function (pi: ExtensionAPI) {
           absoluteCwd,
           signal,
           max_turns,
-          use_citation
+          use_citation,
+          (n, max) => report(`Searching: ${description}... (turn ${n}/${max})`)
         );
 
         return {
           content: [{ type: "text", text: result }],
-          details: { description, promptLength: prompt.length, max_turns, use_citation }
+          details: details(description, prompt.length, max_turns, use_citation)
         };
       } catch (error) {
         // (D-014, SPEC §18): cancellation is identified by type, not by
@@ -280,11 +297,13 @@ export default function (pi: ExtensionAPI) {
           // Return non-error response for user cancellation (SPEC §6)
           return {
             content: [{ type: "text", text: "Search was cancelled" }],
+            details: details(),
             isError: false,
           };
         }
         return {
           content: [{ type: "text", text: `[ERROR] ${error instanceof Error ? error.message : "Unknown error"}` }],
+          details: details(),
           isError: true,
         };
       }

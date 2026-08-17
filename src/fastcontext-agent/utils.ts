@@ -117,6 +117,11 @@ export function resolveDockerMountPath(originalPath: string, cwd: string): { res
  * Extract <final_answer> block from text using regex.
  * Matches Python's get_final_answer implementation.
  * Note: Uses greedy matching to capture all content between tags.
+ *
+ * (Intentional behavior) When the model returns no <final_answer> tag at all,
+ * the full text is passed through unchanged. In citation mode this means the
+ * caller receives the raw (uncited) answer rather than an error — the answer
+ * is still valid, just not machine-parseable.
  */
 export function getFinalAnswer(text: string): string {
   // Use greedy matching with DOTALL flag to capture multiline content

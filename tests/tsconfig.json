@@ -10,6 +10,9 @@
   "include": [
     "setup.ts",
     "tools/*.test.ts",
-    "utils/*.test.ts"
+    "utils/*.test.ts",
+    "integration/*.test.ts",
+    "../src/**/*.ts",
+    "../extensions/**/*.ts"
   ]
 }

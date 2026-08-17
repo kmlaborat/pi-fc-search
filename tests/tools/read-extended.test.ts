@@ -79,8 +79,22 @@ describe("ReadTool - Extended Tests", () => {
         { cwd: TEST_FIXTURES_DIR }
       );
 
-      // Should not throw and should return empty or clamped result
-      expect(result).toBeDefined();
+      // (Review fix) explicit, actionable message instead of an empty header
+      expect(result).toContain("offset 100 exceeds end of file (10 lines)");
+    });
+
+    test("should reject non-positive limit", async () => {
+      const result = await readTool.call(
+        JSON.stringify({
+          path: join(TEST_FIXTURES_DIR, "src/ten_lines.ts"),
+          offset: 1,
+          limit: 0
+        }),
+        { cwd: TEST_FIXTURES_DIR }
+      );
+
+      // (Review fix) explicit message instead of a silent empty range
+      expect(result).toContain("limit must be a positive integer");
     });
 
     test("should handle offset of 0", async () => {

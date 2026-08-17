@@ -3,7 +3,10 @@
  * Ported from src/fastcontext/agent/tool/read.py
  */
 
-import { readFileSync, existsSync } from "fs";
+// (Review fix) async fs/promises instead of sync fs: a blocking readFileSync
+// inside the async tool could not be interrupted by the 10s tool timeout and
+// froze the host (pi) event loop on large files.
+import { readFile, stat } from "fs/promises";
 import { join, resolve } from "path";
 import { isWithinCwd, resolveDockerMountPath } from "../utils.js";
 import type { Tool, CallContext, ToolResult } from "./types.js";
@@ -99,7 +102,13 @@ export class ReadTool implements Tool {
         return `Permission error: \`${resolvedPath}\` is not within the working directory \`${absoluteCwd}\`.`;
       }
 
-      if (!existsSync(resolvedPath)) {
+      let isFile = false;
+      try {
+        isFile = (await stat(resolvedPath)).isFile();
+      } catch {
+        // File does not exist
+      }
+      if (!isFile) {
         return `Read Tool: file ${filePath} does not exist.`;
       }
 
@@ -107,7 +116,7 @@ export class ReadTool implements Tool {
       const correctionNote = pathCorrection ? `[${pathCorrection}]\n` : "";
 
       // Read file
-      const content = readFileSync(resolvedPath, "utf-8");
+      const content = await readFile(resolvedPath, "utf-8");
       
       if (!content || content.trim() === "") {
         return "File is empty.";
@@ -115,11 +124,22 @@ export class ReadTool implements Tool {
       
       const lines = content.split("\n");
 
+      // (Review fix) Validate the paging parameters before computing the
+      // range — previously an offset beyond EOF produced a header with zero
+      // lines and a non-positive limit produced an empty range.
+      if (limit !== undefined && limit <= 0) {
+        return "Read Tool: limit must be a positive integer.";
+      }
+
       // Calculate range
       // SPEC §8.1: offset is 1-indexed; if undefined or < 0, treat as 1.
       let startLine = 1;
       if (offset !== undefined && offset > 0) {
         startLine = offset;
+      }
+
+      if (startLine > lines.length) {
+        return `Read Tool: offset ${offset} exceeds end of file (${lines.length} lines).`;
       }
 
       let endLine = limit !== undefined ? startLine + limit - 1 : lines.length;

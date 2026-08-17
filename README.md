@@ -20,7 +20,7 @@ This package integrates fastcontext-style repository search with the pi coding a
 - **Citation mode**: Returns machine-readable `<final_answer>` block with file paths and line ranges (fastcontext `--citation` flag)
 - **Context-efficient**: Returns only relevant file locations and summaries
 - **Pass-through output**: Final answers returned without wrapper-level truncation
-- **No repo pollution**: debug trajectories are written to the OS temp directory, never into the searched repository
+- **No repo pollution**: debug trajectories are written to the OS temp directory (files older than 7 days are auto-removed), never into the searched repository
 - **Error handling**: Comprehensive error reporting and recovery
 - **Zero external dependencies**: Uses only `@vscode/ripgrep` (all other logic uses Node.js built-ins)
 
@@ -267,9 +267,6 @@ npm test
 
 # Run type checking
 npm run typecheck
-
-# Run linting
-npm run lint
 ```
 
 ### Compliance
@@ -284,7 +281,7 @@ This extension complies with the following SPEC requirements:
 - **Cancellation**: Cooperative cancellation via AbortSignal (SPEC §4.10)
 - **Model-agnostic**: Designed for general small agentic models (SPEC §19)
 - **Tests**: Comprehensive test suite with vitest
-- **SPEC Version**: Compliant with docs/SPEC.md incl. §17 known issues, §18 documented deviations (D-001 to D-015, D-011 superseded by D-012), and §19 v3 general-model redesign (incl. C-7 description accuracy pass)
+- **SPEC Version**: Compliant with docs/SPEC.md incl. §17 known issues, §18 documented deviations (D-001 to D-016, D-011 superseded by D-012), and §19 v3 general-model redesign (incl. C-7 description accuracy pass)
 
 > **Verification**: Full test suite: `npm test` and `npm run typecheck`. The v3 redesign surfaces (prompt, descriptions, sampling/timeout configuration) are covered by `tests/integration/prompt.test.ts` and `tests/integration/config.test.ts`.
 
@@ -299,7 +296,7 @@ This extension complies with the following SPEC requirements:
 ### TODO
 
 - [ ] Implement path failure tracking and corrective hints in tool responses (see Known Issues #1)
-- [ ] Add integration test infrastructure for fc_search tool execution
+- [x] Integration test infrastructure for agent execution (mock-based: `tests/integration/history-roundtrip.test.ts`; opt-in real-server: `tests/integration/real-server.test.ts`, runs only when `FASTCONTEXT_ENDPOINT` is set)
 
 ## Acknowledgements
 

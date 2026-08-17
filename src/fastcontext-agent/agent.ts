@@ -17,6 +17,7 @@ export interface AgentRunOptions {
   maxTurns?: number;
   citation?: boolean;
   signal?: AbortSignal; // For cancellation support
+  onTurn?: (n: number, maxTurns: number) => void; // Optional per-turn progress hook
 }
 
 export class Agent {
@@ -50,10 +51,16 @@ export class Agent {
     const maxTurns = options.maxTurns ?? 15;
     const citation = options.citation ?? false;
     const signal = options.signal;
-    return await this._agentLoop(options.prompt, maxTurns, citation, signal);
+    return await this._agentLoop(options.prompt, maxTurns, citation, signal, options.onTurn);
   }
 
-  private async _agentLoop(prompt: string, maxTurns: number, citation: boolean, signal?: AbortSignal): Promise<string> {
+  private async _agentLoop(
+    prompt: string,
+    maxTurns: number,
+    citation: boolean,
+    signal?: AbortSignal,
+    onTurn?: (n: number, maxTurns: number) => void
+  ): Promise<string> {
     let nTurn = 0;
 
     // Add system prompt
@@ -70,6 +77,9 @@ export class Agent {
 
       nTurn++;
       this.nTurn = nTurn;
+
+      // Report progress (extension surfaces this via tool updates)
+      onTurn?.(nTurn, maxTurns);
 
       // Check max turns
       if (nTurn > maxTurns + 1) {

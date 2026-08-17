@@ -4,7 +4,8 @@
 
 import { randomUUID } from "crypto";
 import { tmpdir } from "os";
-import { join } from "path";
+import { join, dirname } from "path";
+import { readdirSync, statSync, unlinkSync } from "fs";
 import { LLMClient } from "./llm.js";
 import { DEFAULT_TEMPERATURE } from "./config.js";
 import { ToolSet } from "./tools/types.js";
@@ -20,6 +21,7 @@ export interface RunFastContextAgentOptions {
   citation?: boolean;          // default false — if true, return only the <final_answer> block
   trajectoryFile?: string;     // default: `${os.tmpdir()}/pi-fc-search/trajectory_<timestamp>.jsonl`
   signal?: AbortSignal;
+  onTurn?: (n: number, maxTurns: number) => void; // optional per-turn progress hook
   llm: {
     model: string;
     apiKey: string;
@@ -30,6 +32,41 @@ export interface RunFastContextAgentOptions {
     topP?: number;             // default 0.95
     maxTokens?: number;        // default 32000
   };
+}
+
+// (D-016, SPEC §18) Stale trajectory files are removed from the default
+// temp-dir location so repeated runs do not accumulate unbounded debug
+// artifacts in the OS temp directory.
+const TRAJECTORY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+/**
+ * Best-effort removal of trajectory JSONL files in `dir` older than
+ * `maxAgeMs`. All errors are swallowed — cleanup must never affect the
+ * search itself. Exported for testing.
+ */
+export function cleanupOldTrajectories(
+  dir: string,
+  maxAgeMs: number = TRAJECTORY_MAX_AGE_MS
+): void {
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return; // Directory does not exist yet — nothing to clean.
+  }
+
+  const now = Date.now();
+  for (const entry of entries) {
+    if (!entry.endsWith(".jsonl")) continue;
+    try {
+      const stat = statSync(join(dir, entry));
+      if (now - stat.mtimeMs >= maxAgeMs) {
+        unlinkSync(join(dir, entry));
+      }
+    } catch {
+      // Entry vanished or is unreadable — skip.
+    }
+  }
 }
 
 /**
@@ -44,8 +81,11 @@ export async function runFastContextAgent(options: RunFastContextAgentOptions): 
   // extension does not pollute user projects with debug artifacts.
   let trajectoryFile = options.trajectoryFile;
   if (!trajectoryFile) {
+    const trajectoryDir = join(tmpdir(), "pi-fc-search");
+    // Prune trajectories from older runs (D-016).
+    cleanupOldTrajectories(trajectoryDir);
     const timestamp = new Date().toISOString().replace(/[:.-]/g, "_");
-    trajectoryFile = join(tmpdir(), "pi-fc-search", `trajectory_${timestamp}-${randomUUID().slice(0, 8)}.jsonl`);
+    trajectoryFile = join(trajectoryDir, `trajectory_${timestamp}-${randomUUID().slice(0, 8)}.jsonl`);
   }
 
   // Create LLM client with environment variables
@@ -75,6 +115,7 @@ export async function runFastContextAgent(options: RunFastContextAgentOptions): 
     prompt: options.prompt,
     maxTurns,
     citation,
-    signal: options.signal // Pass abort signal for cancellation
+    signal: options.signal, // Pass abort signal for cancellation
+    onTurn: options.onTurn
   });
 }

@@ -1052,6 +1052,7 @@ behavioral-parity invariant, deviations are only valid when explicitly recorded 
 | **D-013** | `Grep` honors an explicit `-C: 0` as "no context lines" instead of falling back to the default 3 (§8.3) | The port used `parsed["-C"] \|\| 3`, so an explicit `0` (falsy) was coerced to the default 3 — a model asking for zero context silently received 3 context lines per match, bloating results and contradicting the rg `-C` semantics the schema promises. `?? 3` applies the default only when the parameter is absent. |
 | **D-014** | Cancellation is signaled with a typed `CancelledError` class (`src/fastcontext-agent/errors.ts`) instead of a plain `Error` whose message the extension matched via `includes("cancelled")` | String matching made the cancellation contract implicit: any error that merely mentioned "cancelled" was reported as a user cancel, and renaming the message would silently break the §6 "User Cancellation" row. The extension now checks `instanceof CancelledError` (plus `AbortError` from `fetch`, whose name is a platform contract). Error messages are unchanged. |
 | **D-015** | `RequestyAPIError` renamed to `LLMAPIError` (same module location, same messages); `RIPGREP_PATH` is now existence-validated and cached like the other `getRgPath` strategies | The "Requesty" name was a porting leftover from the retired design target (v3 is model/server-agnostic, SPEC §19) and misled readers into thinking a specific provider was involved. The `RIPGREP_PATH` branch previously returned the raw env value on every call — uncached and unvalidated — so a stale value surfaced later as an opaque spawn failure; it now fails fast with an actionable message and participates in the existing result cache (§10.1 precedence is unchanged). |
+| **D-016** | Trajectory files in the default `${os.tmpdir()}/pi-fc-search/` directory are pruned at the start of each run: `.jsonl` files whose mtime is older than 7 days are deleted before the new trajectory is written | D-001 moved trajectories to the OS temp directory, but files were never removed, so repeated use accumulated unbounded debug artifacts in the temp directory. Age-based pruning (7 days, well beyond any debugging window) is best-effort and only touches the default temp-dir location; explicit `trajectoryFile` paths (e.g. benchmark runs) are never touched. Cleanup failures are swallowed — pruning must never affect the search itself. |
 
 Known upstream quirks deliberately **preserved** (not deviations, per the parity invariant):
 the `Read` 2000-char line limit vs. `read.md`'s "500 characters" prose (§8.1), negative
@@ -1081,7 +1082,7 @@ deliberately **not** changed:
 **Status:** active. This section supersedes the upstream-parity framing of §4.6, §8
 (descriptions only) and §9 for the surfaces listed below. Everything not listed here
 (§4.1–4.5, §4.7–4.10, tool behavior in §8.1–8.4, §11–14, and the deviation records
-D-001…D-015, with D-011 superseded by D-012) remains in force unchanged.
+D-001…D-016, with D-011 superseded by D-012) remains in force unchanged.
 
 ### 19.1 Rationale
 
