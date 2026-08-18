@@ -26,14 +26,15 @@ function setupTestFixtures(): void {
   const longLine = "X".repeat(2500);
   fs.writeFileSync(resolve(TEST_FIXTURES_DIR, "src/long_line.ts"), `Short line\n${longLine}\nAnother short line\n`, "utf-8");
 
-  // Create a file that exceeds the 256 KB output budget (D-025):
+  // Create a file that exceeds the 64 KiB output budget (D-048, SPEC §18;
+  // supersedes the D-025 cap value):
   // 1500 lines x ~190 chars ≈ 285 KB (each line < 2000 chars, file < 10 MB)
   const wideLines = Array.from({ length: 1500 }, (_, i) => `Line ${i + 1}: ${"W".repeat(180)}`);
   fs.writeFileSync(resolve(TEST_FIXTURES_DIR, "src/wide_file.ts"), wideLines.join("\n"), "utf-8");
 
   // (D-031, SPEC §18) multi-byte fixture: 1500 lines of 3-byte CJK chars
   // (~292 KB of UTF-8 bytes, but only ~108 KB of JS string length) — under
-  // byte accounting the 256 KB budget kicks in; under the old string-length
+  // byte accounting the 64 KiB budget kicks in; under the old string-length
   // accounting the file would have been returned in full with no note.
   const cjkLines = Array.from({ length: 1500 }, (_, i) => `Line ${i + 1}: ${"あ".repeat(60)}`);
   fs.writeFileSync(resolve(TEST_FIXTURES_DIR, "src/cjk_file.ts"), cjkLines.join("\n"), "utf-8");
@@ -269,7 +270,7 @@ describe("ReadTool - Extended Tests", () => {
     });
   });
 
-  describe("Output byte budget (D-025, SPEC §18)", () => {
+  describe("Output byte budget (D-048, SPEC §18; supersedes D-025)", () => {
     test("should truncate total output at MAX_READ_OUTPUT_BYTES with a continuation note", async () => {
       const result = await readTool.call(
         JSON.stringify({ path: resolve(TEST_FIXTURES_DIR, "src/wide_file.ts") }),

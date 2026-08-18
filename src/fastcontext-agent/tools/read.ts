@@ -25,20 +25,28 @@ export const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
 // (D-020, SPEC §18) NUL-byte probe window for binary detection.
 const BINARY_PROBE_BYTES = 8192;
 
-// (D-025, SPEC §18) Hard cap on total Read output. The 2000-line and
-// 2000-char limits still allow a ~4 MB worst-case result (2000 x 2000),
-// which would overflow the context window of the small models this package
-// targets. The cap truncates the output and tells the model how to continue.
-export const MAX_READ_OUTPUT_BYTES = 256 * 1024; // 256 KB
+// (D-048, SPEC §18; supersedes the D-025 cap value — the truncation
+// mechanism itself is unchanged). Hard cap on total Read output. A 256 KiB
+// result is ~64k tokens: against a ~458 tok/s prefill that is a ~140s cold
+// prefill, structurally beyond the 120s default execution timeout (the
+// 2026-08-18 incident: a 43k-token prompt timed out mid-prefill), and it
+// dilutes the attention of the small models this package targets. 64 KiB
+// keeps a single read's cold prefill well under the timeout and leaves room
+// for the rest of the conversation. The cap truncates the output and tells
+// the model how to continue. This is a SEPARATE, single-call constraint from
+// the combined tool-result history budget (D-047, TOOL_RESULT_BUDGET_BYTES
+// in context.ts).
+export const MAX_READ_OUTPUT_BYTES = 64 * 1024; // 64 KiB
 
 // Read tool description (verbatim from Python source)
 const READ_DESCRIPTION = `Reads a file from the local filesystem. You can access any file directly by using this tool.
 If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.
 
 Usage:
-- You can optionally specify a line offset and limit (especially handy for long files). Total output is capped at 256 KB: if the output ends with a byte-truncation note, continue with a larger offset
+- You can optionally specify a line offset and limit (especially handy for long files). Total output is capped at 64 KiB: if the output ends with a byte-truncation note, continue with a larger offset.
+- For files with more than a few hundred lines, locate the relevant part with Grep first, then Read only that region with offset and limit — do not read large files (e.g. design docs) in full.
 - Lines in the output are numbered starting at 1, using following format: LINE_NUMBER|LINE_CONTENT
-- You have the capability to call multiple tools in a single response. It is always better to speculatively read multiple files as a batch that are potentially useful.
+- You have the capability to call multiple tools in a single response. It is always better to speculatively read multiple small files as a batch that are potentially useful; for large files, read only the located regions with offset and limit.
 - If you read a file that exists but has empty contents you will receive 'File is empty.'
 - Any lines longer than 2000 characters will be truncated to 2000 characters with '...' appended to the end. (SPEC §19 v3: the v2 text kept the stale upstream "500" figure; the code has always enforced 2000.)
 - Any file content that exceeds the 2000 lines will be truncated to 2000 lines with '...' appended to the end.

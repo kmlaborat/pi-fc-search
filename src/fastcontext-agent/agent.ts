@@ -103,6 +103,15 @@ export class Agent {
         });
       }
 
+      // (D-047, SPEC §18) Keep the combined tool-result payload bounded
+      // before EVERY LLM call. Without this, a few large tool outputs grow
+      // the prompt until one cold prefill exceeds the total execution
+      // timeout (2026-08-18 incident: 43k-token prompt → ~95s prefill →
+      // 120s timeout). The trajectory already recorded the full tool
+      // results at context.add() time, so stubbing the history here keeps
+      // the debug record complete while bounding what is sent to the LLM.
+      this.context.evictToolResults();
+
       // Call LLM to get next action. No surrounding try/catch: CancelledError
       // (D-014, SPEC §18) and LLMAPIError (D-021, SPEC §18) must propagate
       // untouched to the extension, which maps them to a cancel result / an

@@ -188,6 +188,20 @@ Example recommended configuration:
 FASTCONTEXT_MODEL="InternScience/Agents-A1-4B"
 ```
 
+#### Context management (large files)
+
+The sub-agent keeps its own prompt bounded for small local models and slow
+prefills:
+
+- A single `Read` returns at most **64 KiB**; larger reads end with a
+  truncation note telling the model to continue with `offset`/`limit`
+  (SPEC D-048).
+- The combined size of all tool results in the conversation is kept under a
+  **64 KiB budget**: when exceeded, the oldest tool results are replaced by a
+  short stub (keeping the `tool_call_id`, tool name/arguments, original size,
+  and the first output line) so the model can re-acquire the content
+  (SPEC D-047). The full results are always preserved in the trajectory file.
+
 <details>
 <summary>Legacy: community-mirrored Microsoft FastContext models (optional)</summary>
 
@@ -310,7 +324,7 @@ This extension complies with the following SPEC requirements:
 - **Cancellation**: Cooperative cancellation via AbortSignal (SPEC §4.10)
 - **Model-agnostic**: Designed for general small agentic models (SPEC §19)
 - **Tests**: Comprehensive test suite with vitest
-- **SPEC Version**: Compliant with docs/SPEC.md incl. §17 known issues, §18 documented deviations (D-001 to D-046; D-011 superseded by D-012, the D-019 `LLMAPIError` note superseded by D-021), and §19 v3 general-model redesign (incl. C-7 description accuracy pass)
+- **SPEC Version**: Compliant with docs/SPEC.md incl. §17 known issues, §18 documented deviations (D-001 to D-048; D-011 superseded by D-012, the D-019 `LLMAPIError` note superseded by D-021, the D-025 cap value superseded by D-048), and §19 v3 general-model redesign (incl. C-9 context-management guardrails)
 - **Transient-failure retry**: LLM API 408/429/5xx and network errors are retried twice with backoff (D-023); LLM API failures and empty final responses are reported as flagged errors (`isError: true`, D-021)
 
 > **Verification**: Full test suite: `npm test` and `npm run typecheck`. The v3 redesign surfaces (prompt, descriptions, sampling/timeout configuration) are covered by `tests/integration/prompt.test.ts` and `tests/integration/config.test.ts`; the context-window auto-retry (D-029) is covered by `tests/integration/context-window-retry.test.ts`.
@@ -326,6 +340,7 @@ This extension complies with the following SPEC requirements:
 ### TODO
 
 - [ ] Implement path failure tracking and corrective hints in tool responses (see Known Issues #1)
+- [ ] Remove the temporary `FASTCONTEXT_TIMEOUT_SECONDS=600` mitigation (2026-08-18 prefill-timeout incident) once the local llama-swap parameter filter (which overrides request sampling params) is removed and `tests/integration/timeout-regression.test.ts` passes repeatedly under the default 120s timeout
 - [x] Integration test infrastructure for agent execution (mock-based: `tests/integration/history-roundtrip.test.ts`; opt-in real-server: `tests/integration/real-server.test.ts`, runs only when `FASTCONTEXT_ENDPOINT` is set)
 
 ## Acknowledgements
