@@ -8,6 +8,8 @@ This package integrates fastcontext-style repository search with the pi coding a
 
 **Design target (v3):** any **general small agentic model** served over an OpenAI-compatible `/chat/completions` endpoint with tool calling — including CPU-served local models. The sub-agent is deliberately read-only (Read/Glob/Grep scoped to the working directory) and model-agnostic; see [docs/SPEC.md §19](docs/SPEC.md#19-v3-general-model-redesign).
 
+Despite its name and origins, this package requires **no Microsoft FastContext model and no fastcontext-specific endpoint** — `fc_search` and the `FASTCONTEXT_*` variables keep the upstream naming for continuity, and any OpenAI-compatible tool-calling model (local or hosted) works; see [Model Selection](#model-selection) below.
+
 ### Origin
 
 - **Inspired by / originally ported from**: [manjunathshiva/fastcontext](https://github.com/manjunathshiva/fastcontext), a preserved mirror of Microsoft's removed FastContext repo (arXiv:2606.14066)
@@ -70,24 +72,31 @@ cp .env.example .env
 # Edit .env with your configuration
 ```
 
-Example `.env` file:
+Example `.env` file (local llama.cpp `llama-server` on its default port):
 ```
-FASTCONTEXT_API_KEY="your-api-key"
-FASTCONTEXT_ENDPOINT="https://your-fastcontext-endpoint.com"
+FASTCONTEXT_ENDPOINT="http://127.0.0.1:8080/v1"
 FASTCONTEXT_MODEL="InternScience/Agents-A1-4B"
+# FASTCONTEXT_API_KEY="..."   # only if your server checks auth
 ```
 
 #### Option B: Using shell environment variables
 
 ```bash
-export FASTCONTEXT_API_KEY="your-api-key"
-export FASTCONTEXT_ENDPOINT="https://your-fastcontext-endpoint.com"
-export FASTCONTEXT_MODEL="FastContext-RL"
+export FASTCONTEXT_ENDPOINT="http://127.0.0.1:8080/v1"
+export FASTCONTEXT_MODEL="InternScience/Agents-A1-4B"
+# export FASTCONTEXT_API_KEY="..."   # only if your server checks auth
 ```
 
 > **Note**: If a `.env` file exists in the installed package, its values take
 > precedence over shell environment variables (SPEC §15/D-012). Shell exports
 > only apply to variables not defined in that `.env` file.
+
+> **Minimal local setup**: serve any OpenAI-compatible model locally, e.g.
+> with llama.cpp —
+> `llama-server -m /path/to/model.gguf` (serves `/chat/completions` at
+> `http://127.0.0.1:8080/v1`) — then set the two `FASTCONTEXT_*` variables
+> above. vLLM (default port 8000) and `mlx_lm.server` (macOS) work the same
+> way: point `FASTCONTEXT_ENDPOINT` at the server's `/v1` base URL.
 
 ### 4. Dependencies
 
