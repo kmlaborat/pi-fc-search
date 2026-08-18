@@ -363,3 +363,40 @@ describe("LLMClient - missing message in response (D-039, SPEC §18)", () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("LLMClient - max_completion_tokens optionality (D-052, SPEC §18)", () => {
+  function lastRequestBody(): any {
+    const call = mockFetch.mock.calls[mockFetch.mock.calls.length - 1];
+    return JSON.parse(call[1].body);
+  }
+
+  test("sends max_completion_tokens by default (existing behavior)", async () => {
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue(
+      createMockResponse({ choices: [{ message: { role: "assistant", content: "ok" } }] })
+    );
+    const c = new LLMClient("m", "k", "http://x/v1", { max_tokens: 4096 });
+    await c.acall([{ role: "user", content: "hi" }]);
+    expect(lastRequestBody().max_completion_tokens).toBe(4096);
+  });
+
+  test("omits max_completion_tokens entirely when send_max_tokens is false", async () => {
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue(
+      createMockResponse({ choices: [{ message: { role: "assistant", content: "ok" } }] })
+    );
+    // Older OpenAI-compatible servers 400 on the field; the operator can
+    // drop it via FASTCONTEXT_SEND_MAX_TOKENS=false → send_max_tokens:false.
+    const c = new LLMClient("m", "k", "http://x/v1", {
+      max_tokens: 4096,
+      send_max_tokens: false,
+    });
+    await c.acall([{ role: "user", content: "hi" }]);
+    const body = lastRequestBody();
+    expect(body).not.toHaveProperty("max_completion_tokens");
+    // The rest of the payload is unchanged.
+    expect(body.model).toBe("m");
+    expect(body.temperature).toBeTypeOf("number");
+    expect(body.top_p).toBeTypeOf("number");
+  });
+});

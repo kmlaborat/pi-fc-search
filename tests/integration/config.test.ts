@@ -20,6 +20,7 @@ const VARS = [
   "FASTCONTEXT_TOP_P",
   "FASTCONTEXT_MAX_TOKENS",
   "FASTCONTEXT_TIMEOUT_SECONDS",
+  "FASTCONTEXT_SEND_MAX_TOKENS",
 ] as const;
 
 describe("loadFastContextConfig (SPEC §15.4)", () => {
@@ -121,6 +122,21 @@ describe("loadFastContextConfig (SPEC §15.4)", () => {
     const cfg = loadFastContextConfig();
     expect(cfg.timeoutSeconds).toBe(600);
     expect(cfg.maxTokens).toBe(4096);
+  });
+
+  test("sendMaxTokens defaults to true and parses true/false (D-052, SPEC §18)", () => {
+    clearAll();
+    // Default (unset).
+    expect(loadFastContextConfig().sendMaxTokens).toBe(true);
+    // Explicit true.
+    process.env.FASTCONTEXT_SEND_MAX_TOKENS = "true";
+    expect(loadFastContextConfig().sendMaxTokens).toBe(true);
+    // Explicit false (case-insensitive).
+    process.env.FASTCONTEXT_SEND_MAX_TOKENS = "FALSE";
+    expect(loadFastContextConfig().sendMaxTokens).toBe(false);
+    // Invalid value → warn + default true, never crash.
+    process.env.FASTCONTEXT_SEND_MAX_TOKENS = "yes-please";
+    expect(loadFastContextConfig().sendMaxTokens).toBe(true);
   });
 });
 

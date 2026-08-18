@@ -332,7 +332,9 @@ export class GrepTool implements Tool {
     command.push("--heading", "--color", "never");
 
     try {
-      return await runRipgrep(command, ctx.cwd, MAX_TOOLRUN_TIMEOUT);
+      // (D-050, SPEC §18) the agent's abort signal: rg is killed
+      // immediately on cancellation / total-execution timeout.
+      return await runRipgrep(command, ctx.cwd, MAX_TOOLRUN_TIMEOUT, ctx.signal);
     } catch (error) {
       let errorMessage = error instanceof Error ? error.message : "Unknown error";
 

@@ -134,6 +134,12 @@ export class LLMClient {
   topP: number;
   /** Base delay between retry attempts (attempt n waits base * 2^(n-1)). */
   retryDelayMs: number;
+  /**
+   * (D-052, SPEC §18) whether the payload carries `max_completion_tokens`.
+   * True by default; older OpenAI-compatible servers reject the field with
+   * a 400, so operators can drop it via FASTCONTEXT_SEND_MAX_TOKENS=false.
+   */
+  sendMaxTokens: boolean;
 
   constructor(
     model: string,
@@ -144,6 +150,7 @@ export class LLMClient {
       temperature?: number;
       top_p?: number;
       retry_delay_ms?: number;
+      send_max_tokens?: boolean;
     }
   ) {
     this.model = model;
@@ -153,16 +160,22 @@ export class LLMClient {
     this.temperature = options?.temperature ?? DEFAULT_TEMPERATURE;
     this.topP = options?.top_p ?? 0.95;
     this.retryDelayMs = options?.retry_delay_ms ?? DEFAULT_RETRY_DELAY_MS;
+    this.sendMaxTokens = options?.send_max_tokens ?? true;
   }
 
   async acall(messages: Message[], tools?: object[], signal?: AbortSignal): Promise<{raw: any; normalizedToolCalls: NormalizedToolCall[]}> {
     const payload: ChatCompletionPayload = {
       model: this.model,
       messages,
-      max_completion_tokens: this.maxTokens,
       temperature: this.temperature,
       top_p: this.topP,
     };
+    // (D-052, SPEC §18) `max_completion_tokens` is optional in the payload:
+    // older OpenAI-compatible servers 400 on it. When sendMaxTokens is
+    // false the field is omitted entirely (the server's default applies).
+    if (this.sendMaxTokens) {
+      payload.max_completion_tokens = this.maxTokens;
+    }
 
     if (tools) {
       payload.tools = tools;

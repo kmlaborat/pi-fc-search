@@ -118,14 +118,22 @@ export function evictToolResults(
 
   let evictedCount = 0;
   // Work on a shallow copy: stubbed slots are replaced with new objects,
-  // un-stubbed entries are shared by reference. measure() always reads the
-  // WORKING array so the termination condition sees POST-stub sizes.
+  // un-stubbed entries are shared by reference.
   const result = history.slice();
 
-  // Oldest first (history is append-ordered). Re-measure after each
-  // replacement: the termination condition uses the POST-stub byte sizes.
+  // (D-051, SPEC §18) running total instead of re-measuring the whole
+  // history on every iteration: the pre-D-051 loop called measure() (an
+  // O(n) scan) on each of up to n stub replacements — O(n²) in the
+  // eviction case, on the hot path that runs before EVERY LLM call. The
+  // total is updated incrementally with the exact stub/original byte
+  // deltas, which is arithmetically identical to the post-stub
+  // re-measurement the termination condition used.
+  let total = bytesBefore;
+
+  // Oldest first (history is append-ordered). The termination condition
+  // uses the POST-stub byte sizes (total includes each stub's size).
   for (let i = 0; i < result.length; i++) {
-    if (measure(result) <= budgetBytes) break;
+    if (total <= budgetBytes) break;
     const msg = result[i];
     if (msg.role !== "tool" || isEvictionStub(msg)) continue;
 
@@ -142,6 +150,7 @@ export function evictToolResults(
       ` Re-run the tool (with narrower arguments if it was large) or Read the file with offset and limit to retrieve the content again.`;
 
     result[i] = { ...msg, content: stub };
+    total += Buffer.byteLength(stub, "utf8") - originalBytes;
     evictedCount++;
   }
 
@@ -150,7 +159,7 @@ export function evictToolResults(
     report: {
       evictedCount,
       bytesBefore,
-      bytesAfter: measure(result),
+      bytesAfter: total,
     },
   };
 }

@@ -87,9 +87,15 @@ export FASTCONTEXT_MODEL="InternScience/Agents-A1-4B"
 # export FASTCONTEXT_API_KEY="..."   # only if your server checks auth
 ```
 
-> **Note**: If a `.env` file exists in the installed package, its values take
-> precedence over shell environment variables (SPEC §15/D-012). Shell exports
-> only apply to variables not defined in that `.env` file.
+> **Note (D-012 — the precedence is the REVERSE of the usual dotenv
+> convention, by design)**: If a `.env` file exists in the installed
+> package, its values take precedence over shell environment variables. A
+> stale `export FASTCONTEXT_...` in your shell or CI profile will be
+> **silently ignored** for every key the package `.env` defines — correct
+> the `.env` file itself, and the fix takes effect on the next `fc_search`
+> call (per-call config resolution, D-037; no pi restart needed). Shell
+> exports only apply to `FASTCONTEXT_*` variables not defined in that `.env`
+> file.
 
 > **Minimal local setup**: serve any OpenAI-compatible model locally, e.g.
 > with llama.cpp —
@@ -159,7 +165,7 @@ src/api/routes.py:110-140
 
 ### Environment Variables
 
-The extension reads the following environment variables from the `.env` file at the installed package root or the shell environment (the `.env` file wins over shell variables, SPEC §15/D-012):
+The extension reads the following environment variables from the `.env` file at the installed package root or the shell environment (the `.env` file wins over shell variables — the **reverse** of the usual dotenv precedence, see the D-012 note in Installation):
 
 | Variable | Description | Required | Default |
 |----------|-------------|----------|---------|
@@ -170,6 +176,7 @@ The extension reads the following environment variables from the `.env` file at 
 | `FASTCONTEXT_TOP_P` | Nucleus sampling probability (0–1) | No | `0.95` |
 | `FASTCONTEXT_MAX_TOKENS` | Max completion tokens per LLM call | No | `32000` |
 | `FASTCONTEXT_TIMEOUT_SECONDS` | Total execution timeout (integer ≥ 5). Raise for CPU-served local models | No | `120` |
+| `FASTCONTEXT_SEND_MAX_TOKENS` | Send `max_completion_tokens` in requests (`true`/`false`). Set `false` for older OpenAI-compatible servers that 400 on the field (D-052) | No | `true` |
 
 `FASTCONTEXT_ENDPOINT` and `FASTCONTEXT_MODEL` must be set; the tool fails fast with an actionable error if either is missing (SPEC §18/D-005). Invalid numeric values for the sampling/timeout variables warn and fall back to the defaults.
 
@@ -426,7 +433,7 @@ This extension complies with the following SPEC requirements:
 - **Cancellation**: Cooperative cancellation via AbortSignal (SPEC §4.10)
 - **Model-agnostic**: Designed for general small agentic models (SPEC §19)
 - **Tests**: Comprehensive test suite with vitest
-- **SPEC Version**: Compliant with docs/SPEC.md incl. §17 known issues, §18 documented deviations (D-001 to D-048; D-011 superseded by D-012, the D-019 `LLMAPIError` note superseded by D-021, the D-025 cap value superseded by D-048), and §19 v3 general-model redesign (incl. C-9 context-management guardrails)
+- **SPEC Version**: Compliant with docs/SPEC.md incl. §17 known issues, §18 documented deviations (D-001 to D-052; D-011 superseded by D-012, the D-019 `LLMAPIError` note superseded by D-021, the D-025 cap value superseded by D-048), and §19 v3 general-model redesign (incl. C-9 context-management guardrails)
 - **Transient-failure retry**: LLM API 408/429/5xx and network errors are retried twice with backoff (D-023); LLM API failures and empty final responses are reported as flagged errors (`isError: true`, D-021)
 
 > **Verification**: Full test suite: `npm test` and `npm run typecheck`. The v3 redesign surfaces (prompt, descriptions, sampling/timeout configuration) are covered by `tests/integration/prompt.test.ts` and `tests/integration/config.test.ts`; the context-window auto-retry (D-029) is covered by `tests/integration/context-window-retry.test.ts`.

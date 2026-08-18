@@ -37,6 +37,10 @@ export interface ToolResult {
  */
 export interface CallContext {
   cwd: string; // working directory the tool is scoped to
+  // (D-050, SPEC §18) the agent's abort signal (user cancellation / total-
+  // execution timeout), forwarded so long-running subprocess tools (rg)
+  // can be killed immediately instead of running out their own 10s timeout.
+  signal?: AbortSignal;
 }
 
 /**
@@ -99,7 +103,9 @@ export class ToolSet {
    * This is the primary call path — it accepts pre-normalized flat structs that are
    * never written back to the API, breaking the round-trip transformation chain.
    */
-  async callNormalized(normalizedToolCalls: {id: string; name: string; arguments: Record<string, any>}[]): Promise<ToolResult[]> {
+  // (D-050, SPEC §18) `signal` (the agent's abort signal) is forwarded to
+  // each tool's CallContext so subprocess tools can react to cancellation.
+  async callNormalized(normalizedToolCalls: {id: string; name: string; arguments: Record<string, any>}[], signal?: AbortSignal): Promise<ToolResult[]> {
     const results: ToolResult[] = [];
     
     // Sequential execution with per-call timeout
@@ -107,7 +113,7 @@ export class ToolSet {
       try {
         // SPEC §8.4: timeout ToolResult message includes the tool name
         // (via the shared callWithTimeout helper)
-        const execPromise = this.executeNormalizedCall(call, this.workDir);
+        const execPromise = this.executeNormalizedCall(call, this.workDir, signal);
         results.push(await this.callWithTimeout(call.name, execPromise));
       } catch (error) {
         // Isolate errors - continue with remaining calls
@@ -122,7 +128,7 @@ export class ToolSet {
     return results;
   }
 
-  private async executeNormalizedCall(call: {id: string; name: string; arguments: Record<string, any>}, workDir: string): Promise<ToolResult> {
+  private async executeNormalizedCall(call: {id: string; name: string; arguments: Record<string, any>}, workDir: string, signal?: AbortSignal): Promise<ToolResult> {
     const tool = this.toolDict[call.name];
     if (!tool) {
       return {
@@ -134,7 +140,7 @@ export class ToolSet {
 
     try {
       const args = JSON.stringify(call.arguments);
-      const output = await tool.call(args, { cwd: workDir });
+      const output = await tool.call(args, { cwd: workDir, signal });
       return {
         toolCallId: call.id,
         output,
@@ -164,7 +170,8 @@ export class ToolSet {
    * that behavior for consistency, though parallelization with Promise.all is
    * permissible if per-call error isolation and timeout are maintained.
    */
-  async call(message: Message): Promise<ToolResult[]> {
+  // (D-050, SPEC §18) optional abort signal, same contract as callNormalized.
+  async call(message: Message, signal?: AbortSignal): Promise<ToolResult[]> {
     if (!message.tool_calls || message.tool_calls.length === 0) {
       return [];
     }
@@ -192,7 +199,7 @@ export class ToolSet {
     return results;
   }
 
-  private async executeSingleCall(call: FunctionCall): Promise<ToolResult> {
+  private async executeSingleCall(call: FunctionCall, signal?: AbortSignal): Promise<ToolResult> {
     const tool = this.toolDict[call.function.name];
     if (!tool) {
       return {
@@ -214,7 +221,7 @@ export class ToolSet {
     }
 
     try {
-      const output = await tool.call(call.function.arguments, { cwd: this.workDir });
+      const output = await tool.call(call.function.arguments, { cwd: this.workDir, signal });
       return {
         toolCallId: call.id,
         output,

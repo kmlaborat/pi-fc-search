@@ -25,6 +25,30 @@ export interface FastContextEnvConfig {
   topP: number;
   maxTokens: number;
   timeoutSeconds: number;
+  // (D-052, SPEC §18) whether requests include `max_completion_tokens`.
+  // True by default; set FASTCONTEXT_SEND_MAX_TOKENS=false for older
+  // OpenAI-compatible servers that reject the field with a 400.
+  sendMaxTokens: boolean;
+}
+
+// (D-052, SPEC §18) boolean settings accept only the literals "true" /
+// "false" (case-insensitive); anything else warns and falls back, like the
+// numeric settings.
+function parseBoolean(
+  envValue: string | undefined,
+  fallback: boolean,
+  label: string
+): boolean {
+  if (envValue === undefined || envValue.trim() === "") {
+    return fallback;
+  }
+  const trimmed = envValue.trim().toLowerCase();
+  if (trimmed === "true") return true;
+  if (trimmed === "false") return false;
+  console.warn(
+    `[pi-fc-search] Invalid ${label}="${envValue}" — must be "true" or "false". Using default ${String(fallback)}.`
+  );
+  return fallback;
 }
 
 function parseNumber(
@@ -126,6 +150,11 @@ export function loadFastContextConfig(): FastContextEnvConfig {
       "FASTCONTEXT_TIMEOUT_SECONDS",
       (n) => Number.isInteger(n) && n >= 5,
       true // D-045, SPEC §18
+    ),
+    sendMaxTokens: parseBoolean(
+      process.env.FASTCONTEXT_SEND_MAX_TOKENS,
+      true,
+      "FASTCONTEXT_SEND_MAX_TOKENS"
     ),
   };
 }

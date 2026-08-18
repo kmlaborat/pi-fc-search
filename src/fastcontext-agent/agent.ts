@@ -131,7 +131,10 @@ export class Agent {
       const toolCalls = stepResult.normalizedToolCalls;
 
       if (toolCalls && toolCalls.length > 0) {
-        const toolResults = await this.toolset.callNormalized(toolCalls);
+        // (D-050, SPEC §18) forward the abort signal so long-running tool
+        // subprocesses (rg) are killed immediately on cancellation /
+        // timeout instead of running out their own 10s per-call timeout.
+        const toolResults = await this.toolset.callNormalized(toolCalls, signal);
 
         // Create messages for each tool result
         const toolMessages: any[] = toolResults.map(result => ({

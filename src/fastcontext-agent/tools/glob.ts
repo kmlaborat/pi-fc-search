@@ -3,8 +3,12 @@
  * Ported from src/fastcontext/agent/tool/glob.py
  */
 
-import { existsSync, statSync } from "fs";
-import { realpath } from "fs/promises";
+import { existsSync } from "fs";
+// (Review fix) async stat instead of statSync: the last synchronous fs
+// call in the tool set — a blocking stat on a slow/networked filesystem
+// froze the host (pi) event loop, and it could not be interrupted by the
+// abort signal (D-050).
+import { realpath, stat } from "fs/promises";
 import { resolve } from "path";
 import { isWithinCwd, resolveDockerMountPath } from "../utils.js";
 import type { Tool, CallContext, ToolResult } from "./types.js";
@@ -114,8 +118,8 @@ export class GlobTool implements Tool {
         return `The directory \`${resolvedDirectory}\` does not exist.`;
       }
 
-      const stat = statSync(resolvedDirectory);
-      if (!stat.isDirectory()) {
+      const dirStat = await stat(resolvedDirectory);
+      if (!dirStat.isDirectory()) {
         return `The directory \`${resolvedDirectory}\` is not a directory.`;
       }
 
@@ -147,6 +151,8 @@ export class GlobTool implements Tool {
   }
 
   private async runRipgrepSearch(directory: string, pattern: string, ctx: CallContext): Promise<string> {
-    return await runRipgrep(["--files", directory, "--glob", pattern], ctx.cwd, RG_TIMEOUT);
+    // (D-050, SPEC §18) the agent's abort signal: rg is killed immediately
+    // on cancellation / total-execution timeout.
+    return await runRipgrep(["--files", directory, "--glob", pattern], ctx.cwd, RG_TIMEOUT, ctx.signal);
   }
 }

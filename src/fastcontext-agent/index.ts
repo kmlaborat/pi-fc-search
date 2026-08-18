@@ -31,6 +31,10 @@ export interface RunFastContextAgentOptions {
                                // call tools more reliably at low temperature)
     topP?: number;             // default 0.95
     maxTokens?: number;        // default 32000
+    sendMaxTokens?: boolean;   // default true — false omits
+                               // `max_completion_tokens` from requests
+                               // (D-052, SPEC §18: older OpenAI-compatible
+                               // servers 400 on the field)
   };
 }
 
@@ -95,7 +99,10 @@ export async function runFastContextAgent(options: RunFastContextAgentOptions): 
   const llmClient = new LLMClient(options.llm.model, options.llm.apiKey, options.llm.baseUrl, {
     max_tokens: options.llm.maxTokens ?? DEFAULT_MAX_TOKENS,
     temperature: options.llm.temperature ?? DEFAULT_TEMPERATURE,
-    top_p: options.llm.topP ?? DEFAULT_TOP_P
+    top_p: options.llm.topP ?? DEFAULT_TOP_P,
+    // (D-052, SPEC §18) default true keeps the long-standing payload shape;
+    // false omits max_completion_tokens for servers that reject it.
+    send_max_tokens: options.llm.sendMaxTokens ?? true
   });
 
   // Create tool set (read-only tools)

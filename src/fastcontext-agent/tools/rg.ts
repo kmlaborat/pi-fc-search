@@ -101,15 +101,55 @@ export async function getRgPath(): Promise<string> {
 // the child's runtime.
 const MAX_RG_STDOUT_BYTES = 16 * 1024 * 1024; // 16 MB
 
+// (D-050, SPEC §18) optional abort signal (the agent's cancellation /
+// total-execution timeout signal). When it aborts, the child is killed
+// immediately and the promise rejects with the signal's reason — instead of
+// the child running out its own 10s timeout after the search is already
+// dead. The timeout behavior is unchanged; the signal is an ADDITIONAL
+// stop path.
 export async function runRipgrep(
   args: string[],
   cwd: string,
-  timeoutSeconds: number
+  timeoutSeconds: number,
+  signal?: AbortSignal
 ): Promise<string> {
   const rgPath = await getRgPath();
 
   return new Promise((resolve, reject) => {
     const child = spawn(rgPath, args, { cwd, shell: false });
+
+    const timeoutHandle = setTimeout(() => {
+      clearAbortListener();
+      if (settled) return;
+      settled = true;
+      child.kill();
+      reject(new Error(`Tool timed out after ${timeoutSeconds}s`));
+    }, timeoutSeconds * 1000);
+
+    // (D-050, SPEC §18) abort handling. `settled` guards the double-settle
+    // window: after the abort fires, rg's `close` still arrives and must
+    // not re-settle (resolve after reject is a no-op, but the listener
+    // cleanup below must run exactly once).
+    let settled = false;
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutHandle);
+      child.kill();
+      reject(
+        signal?.reason instanceof Error ? signal.reason : new Error("aborted")
+      );
+    };
+    if (signal) {
+      if (signal.aborted) {
+        onAbort();
+        return;
+      }
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+    const clearAbortListener = () => {
+      if (signal) signal.removeEventListener("abort", onAbort);
+    };
 
     // (D-040, SPEC §18) accumulate as Buffer[] and decode exactly once on
     // settle. The previous `stdout += chunk` relied on Buffer's implicit
@@ -149,13 +189,11 @@ export async function runRipgrep(
       }
     });
 
-    const timeoutHandle = setTimeout(() => {
-      child.kill();
-      reject(new Error(`Tool timed out after ${timeoutSeconds}s`));
-    }, timeoutSeconds * 1000);
-
     child.on("close", (code) => {
       clearTimeout(timeoutHandle);
+      clearAbortListener();
+      if (settled) return; // lost the race to the abort path
+      settled = true;
 
       // (D-040, SPEC §18) single decode of the accumulated bytes (see the
       // chunk handlers above). The chunk handlers retain up to one chunk
@@ -182,6 +220,9 @@ export async function runRipgrep(
 
     child.on("error", (err) => {
       clearTimeout(timeoutHandle);
+      clearAbortListener();
+      if (settled) return; // lost the race to the abort path
+      settled = true;
       reject(err);
     });
   });

@@ -226,6 +226,9 @@ export async function executeAgent(
       // like the other v3 sampling settings.
       topP: FC_CONFIG.topP,
       maxTokens: FC_CONFIG.maxTokens,
+      // (D-052, SPEC §18) false omits max_completion_tokens from requests
+      // (older OpenAI-compatible servers that 400 on the field).
+      sendMaxTokens: FC_CONFIG.sendMaxTokens,
     }
   };
 
