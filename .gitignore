@@ -34,3 +34,7 @@ yarn-error.log*
 
 # FastContext trajectories (if any)
 .fastcontext/
+
+# Harness debug artifacts (model-run trajectories and result logs)
+harness/results/
+
