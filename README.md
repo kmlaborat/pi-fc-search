@@ -179,14 +179,116 @@ Any general small agentic model with reliable tool calling works. Pick the small
 
 | Profile | Model | Serving | Notes |
 |---------|-------|---------|-------|
-| **Recommended (verified)** | `InternScience/Agents-A1-4B` | mlx-lm / vLLM / llama.cpp | Verified across query types: honest exploration (does not fabricate results for non-existent files), accurate answers, good parallel tool calling (SPEC KN-005) |
-| **CPU-friendly** | `LiquidAI/LFM2.5-2.6B` | llama.cpp / vLLM | Small enough for CPU inference. **Set `FASTCONTEXT_TIMEOUT_SECONDS=600`** (or higher) — CPU latency makes the 120s default unreachable. Keep `FASTCONTEXT_TEMPERATURE` low (default 0.2) |
+| **Recommended (verified)** | `InternScience/Agents-A1-4B` | mlx-lm / vLLM / llama.cpp | Verified across query types: honest exploration (does not fabricate results for non-existent files), accurate answers, good parallel tool calling (SPEC KN-005). Measured comparison below. |
+| **CPU-friendly** | `LiquidAI/LFM2.5-2.6B` | llama.cpp / vLLM | Small enough for CPU inference. **Set `FASTCONTEXT_TIMEOUT_SECONDS=600`** (or higher) — CPU latency makes the 120s default unreachable. Keep `FASTCONTEXT_TEMPERATURE` low (default 0.2). Measured: lower accuracy + more turn-budget exhaustion than Agents-A1-4B (see below). |
 | **General** | any OpenAI-compatible tool-calling model | any server | If the model wanders or retries failed paths, lower `max_turns` in the `fc_search` call; see KN-001 |
 
 Example recommended configuration:
 ```
 FASTCONTEXT_MODEL="InternScience/Agents-A1-4B"
 ```
+
+#### Measured comparison (Q8 quantization, llama-swap, 2026-08-18)
+
+The three configurations below were benchmarked against the **pi-fc-search
+repository itself** (TypeScript, small–medium) with a fixed set of 13 queries
+spanning three categories — **D**irect retrieval, **M**ulti-hop exploration,
+and **F**ailure resistance (hallucination / non-existent targets) — plus
+re-runs of the failure cases. All runs: `max_turns=15`, `temperature=0.2`,
+`top_p=0.95`, a 600 s execution budget (wall time is reported as an
+independent metric, not a "practicality" gate). Both Agents-A1-4B variants
+served the **same Q8 GGUF** (`Agents-A1-4B-Q8_0.gguf`); thinking was toggled
+via `chat_template_kwargs: {enable_thinking: false}` (Qwen3.5-based
+mechanism, SPEC KN-005) because the llama-swap model tags were not routed at
+benchmark time.
+
+| Config | Model / thinking | D+M correct | F honest | Turn-burn (≥16 turns) | Avg wall | Avg tokens/run |
+|--------|------------------|-------------|----------|----------------------|----------|----------------|
+| **A1-on** | Agents-A1-4B, thinking **on** | 10–11 / 13 | 1 / 2 | 2 / 13 | 94 s | 85,310 |
+| **A1-off** | Agents-A1-4B, thinking **off** | 9 / 13 | 1 / 2 | 2 / 13 | 100 s | 86,355 |
+| **LFM** | LFM2.5-2.6B, always thinking | 7 / 13 | 1 / 2 | **7 / 13** | 145 s | 80,870 |
+
+Findings (first pass 39 runs + 9 re-runs; per-query tables and trajectories in
+`harness/RESULTS-FIRSTPASS.md`):
+
+- **Accuracy: A1-on ≳ A1-off > LFM.** Thinking-on Agents-A1-4B solved the
+  most queries; LFM2.5-2.6B solved the fewest.
+- **Stability (turn-budget exhaustion): A1 2/13 vs LFM 7/13.** LFM's smaller
+  model size translates into lower exploration efficiency, which hits the
+  15-turn budget on most multi-hop queries.
+- **The failure modes differ by model family**, which matters for choosing a
+  mitigation:
+  - **Agents-A1-4B (both) fail by *reaching the right files but not
+    producing the final answer*** — the Grep→bounded-Read exploration is
+    correct and the ground-truth files are read, but the model re-reads them
+    and never emits the `<final_answer>` block before the budget runs out.
+    In the single-run first pass this looked like a NOANSWER, but re-runs
+    recovered it, so it is variance at the *answer-formation* stage, not a
+    broken search.
+  - **LFM2.5-2.6B fails by *unable to continue exploring*** — either
+    **re-exploring the same spot** (repeated identical `Grep`/`Glob`, and
+    `Read` of *non-existent* paths such as `/workspace/...` or `__init__.py`,
+    i.e. the KN-001 hallucinated-path pattern) or ending with a **malformed
+    tool call** (the raw `<|tool_call_start|>[Read(...)]<|tool_call_end|>`
+    string emitted as message *content* instead of structured
+    `tool_calls`), which stalls the agent loop.
+- **Same-query contrast (Q8, "trace abort-signal → timeout vs cancellation"):**
+  A1-off explored in an orderly *test-file entry → Grep-narrow → bounded
+  `Read` with explicit `limit`* pattern and answered in 15 turns; A1-on was
+  the *most efficient* (10 tool calls) and reached the needed information
+  first but did not emit the `<final_answer>`; LFM *stalled on duplicated
+  `Glob *` calls and shallow reads* (e.g. `package.json` 163 B, `README.md`
+  160 B) and never deep-read the target file, ending in a malformed tool
+  call.
+- **Thinking on/off:** thinking-on increases completion tokens (more
+  `reasoning_content`) and accuracy, but **total tokens stay about the same**
+  because prompt (prefill) tokens dominate. Thinking-off is faster per turn
+  and in total wall time, and its first-pass NOANSWERs were recovered on
+  re-run. Choose thinking-off for speed/token efficiency; thinking-on for the
+  highest accuracy where latency is acceptable.
+- **Read 64 KiB cap and Grep→bounded Read are working as intended.** All three
+  configurations predominantly used the *Grep-to-locate → bounded Read*
+  strategy (first tool call was Grep in 9–11/13 runs; LFM in 11/13). Single
+  `Read` outputs stayed at or under the 64 KiB cap (SPEC D-048), and the
+  combined tool-result budget — **tool-result eviction (SPEC D-047) — never
+  fired across all 48 runs** at this repository/query scale: the per-Read 64
+  KiB cap bounds each result first, so the running total never exceeded the
+  64 KiB budget. We keep the Read cap unchanged and continue to observe.
+
+> **Caveats.** Single repository (this one), single quantization (Q8), one
+> server, 13 queries × up to 2 runs — directional, not a large-scale
+> benchmark. Q4 quantization would likely reduce accuracy further (not
+> tested). LFM's "CPU-friendly, broad user reach" premise is real (it runs
+> and answers), but at `max_turns=15` it exhausts the turn budget on most
+> multi-hop queries, so that advantage is conditional on raising
+> `max_turns` or improving exploration.
+
+#### Future experiment candidate: Virtual File Partition Tree (VFPT)
+
+**Not implemented.** The measured LFM2.5-2.6B failure mode — *wandering the
+exploration space* (duplicate `Glob`/`Grep`, repeated `Read` of
+non-existent paths, KN-001-style hallucinated paths) — suggests that a
+**repository navigation layer** that structures the exploration space up
+front (a tree of directories/files with sizes and one-line summaries, i.e. a
+Virtual File Partition Tree) could suppress that wandering for small models.
+This is a **hypothesis, not yet verified**.
+
+Two distinct effects must not be conflated:
+
+1. **Repository navigation layer** — structure the *space* of files so a
+   small model stops guessing paths. This is the unverified hypothesis above
+   and the planned first experiment stage (no change to file-content
+   partitioning).
+2. **Virtual file partitioning** — split *large file contents* for
+   hierarchical `Read`. LFM already performs bounded `Read` correctly in the
+   benchmark, so this is deferred to a second experiment stage.
+
+Planned first-stage experiment: `baseline` (current fc_search) vs `treatment`
+(fc_search + VFPT navigation layer) on LFM2.5-2.6B Q8 over the Q6/Q8/Q10/Q12
+multi-hop queries, measuring accuracy, turn count, tool-call count, duplicate
+exploration, non-existent-path accesses, duplicate `Glob`, max `Read` size,
+total tokens, wall time, and maxTurns-reached rate. See
+`harness/RESULTS-FIRSTPASS.md` for the baseline numbers.
 
 #### Context management (large files)
 
