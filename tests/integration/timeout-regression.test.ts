@@ -29,7 +29,9 @@
  *      - any tool result exceeded the 64 KiB cap (the incident's trigger).
  *
  * Skipped automatically unless FASTCONTEXT_API_KEY and FASTCONTEXT_ENDPOINT
- * are set (CI / local runs without an LLM server are unaffected):
+ * are set AND the configured model can currently serve a completion (one
+ * minimal probe request per run, D-049 — CI / local runs without an LLM
+ * server, or with a server that has not loaded the model, are unaffected):
  *
  *   FASTCONTEXT_ENDPOINT=http://...:8081/v1 FASTCONTEXT_API_KEY=... \
  *   FASTCONTEXT_MODEL=... npx vitest run tests/integration/timeout-regression.test.ts
@@ -40,9 +42,37 @@ import { resolve, join } from "path";
 import { tmpdir } from "os";
 import { readdirSync, readFileSync, statSync } from "fs";
 import { MAX_READ_OUTPUT_BYTES } from "../../src/fastcontext-agent/tools/read.js";
+import { loadEnvFile } from "../../src/fastcontext-agent/env.js";
+import { probeModelAvailable } from "../utils/model-probe.js";
+
+// Unlike real-server.test.ts, this file does not import the agent entry
+// point at top level (executeAgent is lazy-imported inside the test, after
+// the timeout is pinned), so load the package .env explicitly for the gate
+// below to see it.
+loadEnvFile();
 
 const hasCredentials =
   !!process.env.FASTCONTEXT_API_KEY && !!process.env.FASTCONTEXT_ENDPOINT;
+
+// (D-049, SPEC §18) Credentials alone are not enough: a configured-but-
+// unloaded model used to turn this suite red for an environmental reason.
+// Probe the model once and skip when it cannot currently serve a
+// completion. The probe never throws, so a broken endpoint can only skip,
+// never fail.
+const modelAvailable = hasCredentials
+  ? await probeModelAvailable(
+      process.env.FASTCONTEXT_ENDPOINT!,
+      process.env.FASTCONTEXT_API_KEY ?? "",
+      process.env.FASTCONTEXT_MODEL || "test-model"
+    )
+  : false;
+
+if (hasCredentials && !modelAvailable) {
+  console.info(
+    `[timeout-regression] skipping: model "${process.env.FASTCONTEXT_MODEL || "test-model"}" ` +
+    `is not currently available at ${process.env.FASTCONTEXT_ENDPOINT} (probe request failed).`
+  );
+}
 
 // The incident query, verbatim (it is what produced the 164,028-byte /
 // 43,384-token request in the incident capture).
@@ -78,7 +108,7 @@ function newestTrajectoryFile(): string | null {
   return newest?.file ?? null;
 }
 
-describe.skipIf(!hasCredentials)(
+describe.skipIf(!hasCredentials || !modelAvailable)(
   "120s timeout regression (2026-08-18 incident, opt-in real server)",
   () => {
     test("no incident-class (huge-read prefill) timeout at the DEFAULT 120s", async () => {
