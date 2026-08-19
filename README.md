@@ -347,7 +347,13 @@ For local installations (`./path/pi-fc-search`), this is typically the project r
   host pi process
 - Failed file reads are silently ignored (does not break execution)
 - Parser limitations: no inline comments (`KEY=value # note` keeps the comment as part of the value) and no `export KEY=...` prefix support
-- Configuration is read once when the extension loads: after editing `.env`, restart pi for the changes to take effect
+- Configuration is read once when the extension loads: after editing `.env`,
+  either **restart pi** or run **`/reload-env`** inside a running session.
+  The command re-reads `pi-fc-search/.env` and applies its `FASTCONTEXT_*`
+  values to the next `fc_search` call, so no restart is needed (SPEC §18/D-057).
+  Removing a key from `.env` does not unset it for the current pi process
+  (overwrite-only); restart pi to clear a removed key.
+
 
 ### Error Handling
 

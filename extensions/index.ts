@@ -8,7 +8,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import * as path from "path";
 import { runFastContextAgent, RunFastContextAgentOptions } from "../src/fastcontext-agent/index.js";
-import { loadEnvFile } from "../src/fastcontext-agent/env.js";
+import { loadEnvFile, reloadEnvFile } from "../src/fastcontext-agent/env.js";
 import { loadFastContextConfig, validateEndpointUrl } from "../src/fastcontext-agent/config.js";
 import { CancelledError, ConfigurationError, ContextWindowError, TimeoutError } from "../src/fastcontext-agent/errors.js";
 
@@ -310,6 +310,50 @@ export default function (pi: ExtensionAPI) {
   // Register session start handler
   pi.on("session_start", async (_event, ctx) => {
     ctx.ui.notify("pi-fc-search extension loaded (in-process mode)", "info");
+  });
+
+  // (D-057, SPEC §18) Re-read the package .env at runtime. Configuration is
+  // resolved per fc_search call from process.env (D-037), so re-applying the
+  // file's FASTCONTEXT_* keys into process.env makes edits take effect on the
+  // NEXT search — no pi restart needed. Deliberately does NOT use ctx.reload()
+  // (a full extension reload): it would be unnecessary and would churn the
+  // session runtime for a config refresh.
+  pi.registerCommand("reload-env", {
+    description: "Re-read pi-fc-search/.env without restarting pi (applies FASTCONTEXT_* to the next fc_search call)",
+    handler: async (_args, ctx) => {
+      const result = reloadEnvFile();
+
+      if (!result.found) {
+        ctx.ui.notify(
+          `pi-fc-search: no .env found at ${result.envPath} — nothing reloaded. ` +
+          `Shell FASTCONTEXT_* variables (if any) remain in effect.`,
+          "warning"
+        );
+        return;
+      }
+
+      if (result.appliedKeys.length === 0) {
+        ctx.ui.notify(
+          `pi-fc-search: .env reloaded (${result.envPath}) but contains no FASTCONTEXT_* keys.`,
+          "info"
+        );
+      } else {
+        const effective = loadFastContextConfig();
+        ctx.ui.notify(
+          `pi-fc-search: .env reloaded — applied ${result.appliedKeys.join(", ")}. ` +
+          `Now effective: endpoint=${effective.baseUrl || "(unset)"} model=${effective.model || "(unset)"} ` +
+          `timeout=${effective.timeoutSeconds}s. Takes effect on the next fc_search call (no restart needed).`,
+          "info"
+        );
+      }
+
+      if (result.ignoredKeys.length > 0) {
+        ctx.ui.notify(
+          `pi-fc-search: ignored non-FASTCONTEXT_* key(s) in .env: ${result.ignoredKeys.join(", ")}`,
+          "warning"
+        );
+      }
+    },
   });
 
   // Register the fastcontext search tool

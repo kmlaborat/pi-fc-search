@@ -51,7 +51,7 @@ export FASTCONTEXT_ENDPOINT=http://127.0.0.1:8080/v1
 export FASTCONTEXT_MODEL=InternScience/Agents-A1-4B
 ```
 
-The skill automatically loads `.env` from the package directory (`pi-fc-search/.env`) at module initialization time.
+The skill automatically loads `.env` from the package directory (`pi-fc-search/.env`) at module initialization time. After editing `.env`, run `/reload-env` inside a running pi session to apply the changes to the next `fc_search` call without restarting pi (SPEC §18/D-057).
 
 **Features:**
 - Only built-in Node.js modules used (no external dependencies like `dotenv`)
