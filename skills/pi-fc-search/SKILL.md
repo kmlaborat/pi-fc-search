@@ -29,13 +29,15 @@ Configure the fastcontext API credentials using one of these methods:
 Create a `.env` file in the package directory (`pi-fc-search/.env`, next to `package.json`). It is loaded automatically at module initialization (single location — see README §Environment Configuration):
 
 ```env
-# API key for fastcontext authentication
-FASTCONTEXT_API_KEY=your-api-key-here
+# API key for the LLM endpoint (optional for local servers that ignore auth)
+#FASTCONTEXT_API_KEY=your-api-key-here
 
-# Base URL of the fastcontext endpoint
-FASTCONTEXT_ENDPOINT=https://your-fastcontext-endpoint.com
+# Base URL of any OpenAI-compatible endpoint (serves POST /chat/completions
+# with tool calling; any general small agentic model — see README §Model
+# Selection). Example: a local llama-server on its default port.
+FASTCONTEXT_ENDPOINT=http://127.0.0.1:8080/v1
 
-# Model name to use for fastcontext search (see README §Model Selection)
+# Model name to use for the search
 FASTCONTEXT_MODEL=InternScience/Agents-A1-4B
 ```
 
@@ -45,7 +47,7 @@ For model selection details and sampling parameters, see README **§Model Select
 
 ```bash
 export FASTCONTEXT_API_KEY=your-api-key-here
-export FASTCONTEXT_ENDPOINT=https://your-fastcontext-endpoint.com
+export FASTCONTEXT_ENDPOINT=http://127.0.0.1:8080/v1
 export FASTCONTEXT_MODEL=InternScience/Agents-A1-4B
 ```
 
@@ -101,11 +103,11 @@ Key files found:
 ```
 
 **Citation mode (`use_citation: true`):**
-Returns machine-readable `<final_answer>` block with only file paths and line ranges:
+Returns machine-readable `<final_answer>` block with only ABSOLUTE file paths and line ranges (absolute paths are mandated by the sub-agent's system prompt, D-056, SPEC §18):
 ```
 <final_answer>
-src/auth/middleware.py:20-50
-src/api/routes.py:110-140
+/repo/src/auth/middleware.py:20-50
+/repo/src/api/routes.py:110-140
 </final_answer>
 ```
 

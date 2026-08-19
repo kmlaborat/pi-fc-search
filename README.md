@@ -92,10 +92,13 @@ export FASTCONTEXT_MODEL="InternScience/Agents-A1-4B"
 > package, its values take precedence over shell environment variables. A
 > stale `export FASTCONTEXT_...` in your shell or CI profile will be
 > **silently ignored** for every key the package `.env` defines — correct
-> the `.env` file itself, and the fix takes effect on the next `fc_search`
-> call (per-call config resolution, D-037; no pi restart needed). Shell
-> exports only apply to `FASTCONTEXT_*` variables not defined in that `.env`
-> file.
+> the `.env` file itself. The `.env` is loaded once when the extension
+> starts, so a `.env` edit takes effect on the next pi start (see
+> Configuration below). Within a session, the configuration is re-read
+> from `process.env` on every `fc_search` call (per-call config
+> resolution, D-037; D-054), so fail-fast checks and invalid-value
+> warnings always apply to the current values. Shell exports only apply
+> to `FASTCONTEXT_*` variables not defined in that `.env` file.
 
 > **Minimal local setup**: serve any OpenAI-compatible model locally, e.g.
 > with llama.cpp —
@@ -141,17 +144,18 @@ LLM calls fc_search tool:
   "prompt": "Locate the authentication middleware that validates JWT tokens and handles API authentication"
 }
 
-Tool response (citation mode):
+Tool response (citation mode) — paths are ABSOLUTE (the system-prompt
+contract mandates absolute paths inside `<final_answer>`; D-056, SPEC §18):
 ### Relevant Files
 
-- **src/auth/middleware.py**: lines [20-50]
-- **src/api/routes.py**: lines [110-140]
+- **/repo/src/auth/middleware.py**: lines [20-50]
+- **/repo/src/api/routes.py**: lines [110-140]
 
-The underlying fastcontext `--citation` flag returns a machine-readable `<final_answer>` block:
+Citation mode returns the machine-readable `<final_answer>` block only:
 ```
 <final_answer>
-src/auth/middleware.py:20-50
-src/api/routes.py:110-140
+/repo/src/auth/middleware.py:20-50
+/repo/src/api/routes.py:110-140
 </final_answer>
 ```
 
@@ -433,7 +437,7 @@ This extension complies with the following SPEC requirements:
 - **Cancellation**: Cooperative cancellation via AbortSignal (SPEC §4.10)
 - **Model-agnostic**: Designed for general small agentic models (SPEC §19)
 - **Tests**: Comprehensive test suite with vitest
-- **SPEC Version**: Compliant with docs/SPEC.md incl. §17 known issues, §18 documented deviations (D-001 to D-052; D-011 superseded by D-012, the D-019 `LLMAPIError` note superseded by D-021, the D-025 cap value superseded by D-048), and §19 v3 general-model redesign (incl. C-9 context-management guardrails)
+- **SPEC Version**: Compliant with docs/SPEC.md incl. §17 known issues, §18 documented deviations (D-001 to D-056; D-011 superseded by D-012, the D-019 `LLMAPIError` note superseded by D-021, the D-025 cap value superseded by D-048), and §19 v3 general-model redesign (incl. C-9 context-management guardrails)
 - **Transient-failure retry**: LLM API 408/429/5xx and network errors are retried twice with backoff (D-023); LLM API failures and empty final responses are reported as flagged errors (`isError: true`, D-021)
 
 > **Verification**: Full test suite: `npm test` and `npm run typecheck`. The v3 redesign surfaces (prompt, descriptions, sampling/timeout configuration) are covered by `tests/integration/prompt.test.ts` and `tests/integration/config.test.ts`; the context-window auto-retry (D-029) is covered by `tests/integration/context-window-retry.test.ts`.

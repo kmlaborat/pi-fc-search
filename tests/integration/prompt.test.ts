@@ -2,11 +2,17 @@
  * System prompt tests (SPEC §9 v2 record / §19 v3 active prompt)
  */
 
-import { describe, test, expect } from 'vitest';
+import { describe, test, expect, beforeAll } from 'vitest';
 import { loadSystemPrompt } from '../../src/fastcontext-agent/prompt.js';
 
 describe("System prompt (v3, SPEC §19 C-3)", () => {
-  const prompt = loadSystemPrompt(process.cwd());
+  // (D-055, SPEC §18) loadSystemPrompt is async (the last synchronous fs
+  // call in the agent was removed) — load the prompt once before the tests.
+  let prompt: string;
+
+  beforeAll(async () => {
+    prompt = await loadSystemPrompt(process.cwd());
+  });
 
   test("should substitute WORK_DIR and the top-level listing", () => {
     expect(prompt).toContain(`Workspace Path: ${process.cwd()}`);

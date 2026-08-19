@@ -8,7 +8,6 @@ import { normalizeToolCalls } from "./llm.js";
 import { CancelledError, LLMAPIError, NoFinalAnswerError } from "./errors.js";
 import type { ToolSet, FunctionCall } from "./tools/types.js";
 import { Context } from "./context.js";
-import { loadSystemPrompt } from "./prompt.js";
 import { getFinalAnswer } from "./utils.js";
 
 export interface AgentRunOptions {
@@ -32,10 +31,15 @@ export class Agent {
     llm: LLMClient,
     toolset: ToolSet,
     trajectoryFile: string,
-    workDir: string
+    workDir: string,
+    // (D-055, SPEC §18) the system prompt is passed in instead of being
+    // loaded here: loadSystemPrompt is async (the last synchronous fs call
+    // in the agent was removed), so runFastContextAgent awaits it before
+    // constructing the Agent.
+    systemPrompt: string
   ) {
     this.name = name;
-    this.systemPrompt = loadSystemPrompt(workDir);
+    this.systemPrompt = systemPrompt;
     this.llm = llm;
     this.toolset = toolset;
     this.context = new Context(trajectoryFile);

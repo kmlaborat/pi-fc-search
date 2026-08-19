@@ -101,6 +101,36 @@ export async function getRgPath(): Promise<string> {
 // the child's runtime.
 const MAX_RG_STDOUT_BYTES = 16 * 1024 * 1024; // 16 MB
 
+// (D-053, SPEC §18) cap for the slice of stderr that goes into the
+// reject's error MESSAGE. The 16 MB accumulation cap (D-034/D-038) is a
+// memory bound; the rejected error text additionally becomes the failed
+// tool result's text. In practice the D-047 tool-result budget (64 KiB)
+// stubs any such oversized result before the next LLM call, so the model
+// would only ever see the stub's first line — surfacing megabytes of
+// stderr as an error message bloated the trajectory without improving
+// what the model reads. Actionable rg stderr (usage errors, regex parse
+// errors) fits far below this cap.
+const MAX_RG_ERROR_TEXT_BYTES = 8 * 1024; // 8 KiB
+
+/**
+ * (D-053, SPEC §18) Build the reject's error text from accumulated stderr,
+ * truncating at MAX_RG_ERROR_TEXT_BYTES (UTF-8 safe: a code point split at
+ * the byte cut is dropped, not left as a trailing U+FFFD).
+ */
+export function stderrErrorText(stderr: string, code: number | null): string {
+  if (!stderr) {
+    return `Ripgrep exited with code ${code}`;
+  }
+  if (Buffer.byteLength(stderr, "utf8") <= MAX_RG_ERROR_TEXT_BYTES) {
+    return stderr;
+  }
+  const truncated = Buffer.from(stderr, "utf8")
+    .subarray(0, MAX_RG_ERROR_TEXT_BYTES)
+    .toString("utf8")
+    .replace(/\uFFFD+$/g, "");
+  return `${truncated}\n[stderr truncated at ${MAX_RG_ERROR_TEXT_BYTES} bytes]`;
+}
+
 // (D-050, SPEC §18) optional abort signal (the agent's cancellation /
 // total-execution timeout signal). When it aborts, the child is killed
 // immediately and the promise rejects with the signal's reason — instead of
@@ -118,7 +148,33 @@ export async function runRipgrep(
   return new Promise((resolve, reject) => {
     const child = spawn(rgPath, args, { cwd, shell: false });
 
-    const timeoutHandle = setTimeout(() => {
+    // (D-055, SPEC §18) all state declared BEFORE the handlers that use
+    // it: the previous layout defined `setTimeout` first, whose callback
+    // referenced `settled` and `clearAbortListener` before their
+    // declarations (safe only because the callbacks run asynchronously —
+    // a TDZ-style readability trap).
+    let settled = false;
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+      child.kill();
+      reject(
+        signal?.reason instanceof Error ? signal.reason : new Error("aborted")
+      );
+    };
+
+    const clearAbortListener = () => {
+      if (signal) signal.removeEventListener("abort", onAbort);
+    };
+
+    // (D-050, SPEC §18) abort handling. `settled` guards the double-settle
+    // window: after the abort fires, rg's `close` still arrives and must
+    // not re-settle (resolve after reject is a no-op, but the listener
+    // cleanup below must run exactly once).
+    timeoutHandle = setTimeout(() => {
       clearAbortListener();
       if (settled) return;
       settled = true;
@@ -126,20 +182,6 @@ export async function runRipgrep(
       reject(new Error(`Tool timed out after ${timeoutSeconds}s`));
     }, timeoutSeconds * 1000);
 
-    // (D-050, SPEC §18) abort handling. `settled` guards the double-settle
-    // window: after the abort fires, rg's `close` still arrives and must
-    // not re-settle (resolve after reject is a no-op, but the listener
-    // cleanup below must run exactly once).
-    let settled = false;
-    const onAbort = () => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeoutHandle);
-      child.kill();
-      reject(
-        signal?.reason instanceof Error ? signal.reason : new Error("aborted")
-      );
-    };
     if (signal) {
       if (signal.aborted) {
         onAbort();
@@ -147,9 +189,6 @@ export async function runRipgrep(
       }
       signal.addEventListener("abort", onAbort, { once: true });
     }
-    const clearAbortListener = () => {
-      if (signal) signal.removeEventListener("abort", onAbort);
-    };
 
     // (D-040, SPEC §18) accumulate as Buffer[] and decode exactly once on
     // settle. The previous `stdout += chunk` relied on Buffer's implicit
@@ -214,7 +253,8 @@ export async function runRipgrep(
       if (code === 0 || code === 1) {
         resolve(stdout);
       } else {
-        reject(new Error(stderr || `Ripgrep exited with code ${code}`));
+        // (D-053, SPEC §18) message is truncated — see stderrErrorText.
+        reject(new Error(stderrErrorText(stderr, code)));
       }
     });
 

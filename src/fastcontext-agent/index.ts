@@ -7,6 +7,7 @@ import { tmpdir } from "os";
 import { join, dirname } from "path";
 import { readdirSync, statSync, unlinkSync } from "fs";
 import { LLMClient } from "./llm.js";
+import { loadSystemPrompt } from "./prompt.js";
 import { DEFAULT_TEMPERATURE, DEFAULT_TOP_P, DEFAULT_MAX_TOKENS } from "./config.js";
 import { ToolSet } from "./tools/types.js";
 import { ReadTool } from "./tools/read.js";
@@ -112,13 +113,18 @@ export async function runFastContextAgent(options: RunFastContextAgentOptions): 
     new GrepTool()
   ], options.cwd);
 
+  // (D-055, SPEC §18) load the system prompt before constructing the
+  // Agent — loadSystemPrompt is async (see prompt.ts).
+  const systemPrompt = await loadSystemPrompt(options.cwd);
+
   // Create and run agent
   const agent = new Agent(
     "FastContext",
     llmClient,
     toolset,
     trajectoryFile,
-    options.cwd
+    options.cwd,
+    systemPrompt
   );
 
   return await agent.run({

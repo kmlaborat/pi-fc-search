@@ -120,7 +120,10 @@ describe("Agent loop - forced final turn (D-007, SPEC §18)", () => {
         normalizedToolCalls: [],
       });
 
-    const agent = new Agent("test", { acall } as any, toolset, trajectoryFile, process.cwd());
+    // (D-055, SPEC §18) the system prompt is now a constructor argument
+    // (loadSystemPrompt is async and awaited by runFastContextAgent);
+    // these mock-based tests pass a placeholder — its content is unused.
+    const agent = new Agent("test", { acall } as any, toolset, trajectoryFile, process.cwd(), "test system prompt");
     const result = await agent.run({ prompt: "find package.json", maxTurns: 1 });
 
     expect(acall).toHaveBeenCalledTimes(2);
@@ -138,7 +141,7 @@ describe("Agent loop - LLM API failure propagation (D-021, SPEC §18)", () => {
     const acall = vi.fn().mockRejectedValue(
       new LLMAPIError("LLM API call failed (500): boom")
     );
-    const agent = new Agent("test", { acall } as any, toolset, trajectoryFile, process.cwd());
+    const agent = new Agent("test", { acall } as any, toolset, trajectoryFile, process.cwd(), "test system prompt");
 
     // Pre-D-021 this resolved with the error text as a "final answer";
     // now it must reject so the extension flags the tool result isError: true.
@@ -152,7 +155,7 @@ describe("Agent loop - LLM API failure propagation (D-021, SPEC §18)", () => {
       raw: { role: "assistant", content: "" },
       normalizedToolCalls: [],
     });
-    const agent = new Agent("test", { acall } as any, toolset, trajectoryFile, process.cwd());
+    const agent = new Agent("test", { acall } as any, toolset, trajectoryFile, process.cwd(), "test system prompt");
 
     await expect(agent.run({ prompt: "find x", maxTurns: 3 })).rejects.toThrow(
       /empty response/
@@ -165,7 +168,7 @@ describe("Agent loop - LLM API failure propagation (D-021, SPEC §18)", () => {
       raw: { role: "assistant", content: "Answer.\n<final_answer>a.ts:1-2</final_answer>" },
       normalizedToolCalls: [],
     });
-    const agent = new Agent("test", { acall } as any, toolset, trajectoryFile, process.cwd());
+    const agent = new Agent("test", { acall } as any, toolset, trajectoryFile, process.cwd(), "test system prompt");
 
     const result = await agent.run({ prompt: "find x", maxTurns: 3 });
     expect(result).toContain("<final_answer>");
@@ -187,7 +190,7 @@ describe("Agent loop - turn budget exhaustion (D-042, SPEC §18)", () => {
       normalizedToolCalls: [{ id: "c1", name: "Read", arguments: { path: "x" } }],
     });
     const trajectoryFile = join(tmpdir(), "pi-fc-search", "trajectory_test_d42.jsonl");
-    const agent = new Agent("test", { acall } as any, toolset, trajectoryFile, process.cwd());
+    const agent = new Agent("test", { acall } as any, toolset, trajectoryFile, process.cwd(), "test system prompt");
 
     // Pre-D-042 this RESOLVED with the string "No final answer after 2 turns."
     // and the extension returned it as a successful (isError: false) result.
