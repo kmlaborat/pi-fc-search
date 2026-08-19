@@ -65,7 +65,7 @@ export function applyEnvContent(
   return ignoredKeys;
 }
 
-// (D-057, SPEC §18) Result of a .env (re)load. Lets the /reload-env command
+// (D-057, SPEC §18) Result of a .env (re)load. Lets the /reload-fc-env command
 // report exactly what happened without re-parsing the file itself.
 export interface ReloadEnvResult {
   /** The resolved package-root .env path. */
@@ -92,7 +92,7 @@ export function getEnvPath(): string {
  * (D-057, SPEC §18) Re-runnable: unlike loadEnvFile() this performs the file
  * read on EVERY call, so editing the .env file and re-invoking picks up new
  * values without a pi restart. Combined with D-037's per-call
- * loadFastContextConfig(), a /reload-env then the next fc_search call uses
+ * loadFastContextConfig(), a /reload-fc-env then the next fc_search call uses
  * the corrected configuration.
  *
  * Semantics preserved from the original loader:

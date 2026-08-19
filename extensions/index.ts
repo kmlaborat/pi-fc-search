@@ -318,7 +318,7 @@ export default function (pi: ExtensionAPI) {
   // NEXT search — no pi restart needed. Deliberately does NOT use ctx.reload()
   // (a full extension reload): it would be unnecessary and would churn the
   // session runtime for a config refresh.
-  pi.registerCommand("reload-env", {
+  pi.registerCommand("reload-fc-env", {
     description: "Re-read pi-fc-search/.env without restarting pi (applies FASTCONTEXT_* to the next fc_search call)",
     handler: async (_args, ctx) => {
       const result = reloadEnvFile();

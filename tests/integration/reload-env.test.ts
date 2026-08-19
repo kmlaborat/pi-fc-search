@@ -1,5 +1,5 @@
 /**
- * (D-057, SPEC §18) /reload-env runtime .env re-read tests.
+ * (D-057, SPEC §18) /reload-fc-env runtime .env re-read tests.
  *
  * reloadEnvFile() must be re-runnable: unlike loadEnvFile() (once-guarded at
  * module init), it performs the file read on EVERY call so a .env edit takes
@@ -9,7 +9,7 @@
  * The real package .env lives at a path derived from env.ts (not injectable),
  * so these tests exercise the same parsing/application code through
  * applyEnvContent() against a sandbox env object, plus the extension's
- * /reload-env command wiring with reloadEnvFile mocked (the vi.mock factory
+ * /reload-fc-env command wiring with reloadEnvFile mocked (the vi.mock factory
  * runs before any module import in this file — no cross-test cache pollution).
  */
 
@@ -112,7 +112,7 @@ describe("reload semantics (D-057, SPEC §18)", () => {
   });
 });
 
-describe("/reload-env command wiring (D-057, SPEC §18)", () => {
+describe("/reload-fc-env command wiring (D-057, SPEC §18)", () => {
   beforeEach(() => {
     mockReload.mockReset();
   });
@@ -131,19 +131,19 @@ describe("/reload-env command wiring (D-057, SPEC §18)", () => {
     const mod = await import("../../extensions/index.js");
     const registerCommand = vi.fn();
     mod.default({ on: vi.fn(), registerCommand, registerTool: vi.fn() } as any);
-    const call = registerCommand.mock.calls.find((c: unknown[]) => c[0] === "reload-env");
+    const call = registerCommand.mock.calls.find((c: unknown[]) => c[0] === "reload-fc-env");
     expect(call).toBeDefined();
     const ctx = makeMockCtx();
     await (call![1].handler as (args: string, ctx: unknown) => Promise<void>)("", ctx);
     return { ctx, notifyTexts: (ctx.ui.notify as any).mock.calls };
   }
 
-  test("registers a /reload-env command", async () => {
+  test("registers a /reload-fc-env command", async () => {
     mockReload.mockReturnValue({ envPath: "/pkg/.env", found: true, appliedKeys: [], ignoredKeys: [] });
     const mod = await import("../../extensions/index.js");
     const registerCommand = vi.fn();
     mod.default({ on: vi.fn(), registerCommand, registerTool: vi.fn() } as any);
-    expect(registerCommand.mock.calls.map((c: unknown[]) => c[0])).toContain("reload-env");
+    expect(registerCommand.mock.calls.map((c: unknown[]) => c[0])).toContain("reload-fc-env");
   });
 
   test("notifies applied keys and effective config on success", async () => {
